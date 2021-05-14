@@ -75,13 +75,13 @@ class PropagateColors(ExprVisitor):
 
     def is_fp16_compatible_arg(self, arg: relay.Expr) -> bool:
         """
-        For vars and constants, assume can cast to fp16 
+        For vars and constants, assume can cast to fp16
         """
         if isinstance(arg, relay.Var) or isinstance(arg, relay.Constant):
             return True
         elif isinstance(arg, relay.Call):
             return (
-                self.output_dtype_function(arg) == "fp16"
+                self.output_dtype_function(arg) == "float16"
                 and self.result_map[arg] == graph_colors.ConversionCategory.GREEN
             )
         elif isinstance(arg, relay.TupleGetItem):
@@ -91,6 +91,10 @@ class PropagateColors(ExprVisitor):
 
 
 class PrintVisitor(ExprVisitor):
+    def __init__(self, result_map: Dict[relay.Call, graph_colors.ConversionCategory]):
+        super().__init__()
+        self.result_map = result_map.copy()
+
     def visit_call(self, call):
         super().visit_call(call)
 
@@ -107,7 +111,7 @@ class PrintVisitor(ExprVisitor):
         else:
             raise ValueError(f"Unknown type {type(call.checked_type)}")
 
-        print(f"Operation {call.op} output dtype {output_dtype}")
+        print(f"Operation {call.op} output dtype {output_dtype}, color {self.result_map[call]}")
 
         if call.op == relay.op.get("nn.batch_norm"):
             pass
@@ -146,15 +150,21 @@ if __name__ == "__main__":
     out = infer_type_pass(mod)
     relay_node_out = out["main"].body
 
-    visitor = PrintVisitor()
-    visitor.visit(relay_node_out)
-
     color_func = graph_colors.DefaultColorer()
     colorer = InitialGraphColorer(color_func)
     colorer.visit(relay_node_out)
 
+    print("Initial color")
+    visitor = PrintVisitor(colorer.result_map)
+    visitor.visit(relay_node_out)
+
     propagater = PropagateColors(colorer.result_map, lambda x: "float16")
     propagater.visit_call(relay_node_out)
+
+    print()
+    print("After propogate")
+    visitor = PrintVisitor(propagater.result_map)
+    visitor.visit(relay_node_out)
 
     import pdb
 
