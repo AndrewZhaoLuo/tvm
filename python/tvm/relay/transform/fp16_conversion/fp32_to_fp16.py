@@ -25,118 +25,13 @@ from tvm.relay.analysis import count_layers
 from tvm.relay.expr_functor import Call, ExprVisitor
 from tvm.relay.testing import resnet
 from tvm.relay.transform import InferType
-
-class ConversionCategory(enum.Enum):
-    """
-    Green: will cast to fp16 version of the op which takes in fp16 inputs
-    Gray: may cast after doing analysis
-    Red: will not cast to fp16 version
-    """
-
-    GREEN = "Green"
-    GRAY = "Gray"
-    RED = "Red"
-
-def create_op_list(op_list: List[str]) -> List[tvm.ir.Op]:
-    return [relay.op.get(op_name) for op_name in op_list]
-
-class DefaultColorer:
-    # Default lists inspired from TF's classifications:
-    # https://github.com/tensorflow/tensorflow/blob/v2.5.0/tensorflow/core/grappler/optimizers/auto_mixed_precision_lists.h
-    # They might have a bias toward NVidia's Tensor Cores so be aware and modify lists per your hardware choice.
-
-    # These should always be done in fp16 if possible
-    DEFAULT_GREEN_LIST = {
-        # 
-        "nn.conv1d",
-        "nn.conv2d",
-        "nn.conv3d",
-        "nn.conv1d_transpose",
-        "nn.conv2d_transpose",
-        "nn.conv3d_transpose",
-        "nn.dense",
-    }
-
-    # These can be done in fp16 or fp32 with no point in casting between
-    DEFAULT_GRAY_LIST = {
-        # These ops add new data or change shape
-        "nn.pad",
-        "nn.batch_flatten",
-        # Simple arithmetic
-        "add",
-        "nn.bias_add",
-        "nn.batch_norm",
-        # Simple activations
-        "nn.relu",
-        "nn.leaky_relu",
-        "nn.prelu",
-        "nn.dropout",
-        # Pooling operations
-        "nn.max_pool1d",
-        "nn.max_pool2d",
-        "nn.max_pool3d",
-        "nn.avg_pool1d",
-        "nn.avg_pool2d",
-        "nn.avg_pool3d",
-        ## "nn.global_max_pool1d", # does not exist
-        "nn.global_max_pool2d",
-        ## "nn.global_max_pool3d", # does not exist
-        ## "nn.global_avg_pool1d", # does not exist
-        "nn.global_avg_pool2d",
-        ## "nn.global_avg_pool3d", # does not exist
-        "nn.adaptive_max_pool1d",
-        "nn.adaptive_max_pool2d",
-        "nn.adaptive_max_pool3d",
-        "nn.adaptive_avg_pool1d",
-        "nn.adaptive_avg_pool2d",
-        "nn.adaptive_avg_pool3d",
-    }
-
-    # These should always be done in fp32
-    DEFAULT_RED_LIST = {
-        # Activations with exponents or division
-        "nn.cross_entropy",
-        "nn.cross_entropy_with_logits",
-        "nn.softmax",
-        # Other
-        "nn.l2_normalize",
-    }
-
-    def __init__(
-        self,
-        green_list: List[str] = DEFAULT_GREEN_LIST,
-        gray_list: List[str] = DEFAULT_GRAY_LIST,
-        red_list: List[str] = DEFAULT_RED_LIST,
-    ):
-        # Convert each list to entry
-        green_list = create_op_list(green_list)
-        gray_list = create_op_list(gray_list)
-        red_list = create_op_list(red_list)
-
-        # Create lookup table mapping relay op -> color in grpah
-        self.lookup_table = {}
-        for op_list, val in [
-            (green_list, ConversionCategory.GREEN),
-            (gray_list, ConversionCategory.GRAY),
-            (red_list, ConversionCategory.RED),
-        ]:
-            for op in op_list:
-                self.lookup_table[op] = val
-
-    def __call__(self, call_node: relay.Call, ignore_missing: bool = False) -> ConversionCategory:
-        if call_node.op not in self.lookup_table:
-            if ignore_missing:
-                return ConversionCategory.RED
-            else:
-                raise ValueError(f"Unknown op {call_node.op}")
-
-        return self.lookup_table[call_node.op]
+from tvm.relay.transform.fp16_conversion import graph_colors
 
 
 class InitialGraphColorer(ExprVisitor):
     """Color ops"""
 
-    def __init__(self, color_function: Callable[[relay.Call], ConversionCategory]):
+    def __init__(self, color_function: Callable[[relay.Call], graph_colors.ConversionCategory]):
         super().__init__()
         self.color_function = color_function
         self.result_map = {}
@@ -145,14 +40,19 @@ class InitialGraphColorer(ExprVisitor):
         self.result_map[call] = self.color_function(call)
         super().visit_call(call)
 
+
 class PropagateColors(ExprVisitor):
     """Propagate colors outward through gray colored nodes.
-    
+
     A gray node becomes green if all it's inputs are fp16 or compile time constants (which can be cast at compile time).
     Otherwise the node will become red.
     """
 
-    def __init__(self, result_map: Dict[relay.Call, ConversionCategory], output_dtype_function: Callable[[relay.Call], str]):
+    def __init__(
+        self,
+        result_map: Dict[relay.Call, graph_colors.ConversionCategory],
+        output_dtype_function: Callable[[relay.Call], str],
+    ):
         super().__init__()
         self.result_map = result_map.copy()
         self.output_dtype_function = output_dtype_function
@@ -160,25 +60,35 @@ class PropagateColors(ExprVisitor):
     def visit_call(self, call: relay.Call):
         super().visit_call(call)
 
-        if self.result_map[call] != ConversionCategory.GRAY:
-            return 
+        if self.result_map[call] != graph_colors.ConversionCategory.GRAY:
+            return
 
-        new_args = []
+        is_green = True
         for arg in call.args:
-            # Assume variables will have constant weights inserted eventually
-            if isinstance(arg, relay.Var) or isinstance(arg, relay.Constant):
-                arg = relay.cast(arg, 'float16') 
-            elif isinstance(arg, relay.Call):
-                if self.output_dtype_function(arg) == 'fp16' and self.result_map[arg] == ConversionCategory.GREEN:
-                    continue 
-                else:
-                    self.result_map[call] = ConversionCategory.RED 
-            elif isinstance(arg, relay.TupleGetItem):
-                continue 
-            else:
-                raise ValueError(f"Unknown node type {type(arg)} as arg for operation {call.op}")
-            
-            new_args.append(arg)
+            is_green = is_green and self.is_fp16_compatible_arg(arg)
+
+        self.result_map[call] = (
+            graph_colors.ConversionCategory.GREEN
+            if is_green
+            else graph_colors.ConversionCategory.RED
+        )
+
+    def is_fp16_compatible_arg(self, arg: relay.Expr) -> bool:
+        """
+        For vars and constants, assume can cast to fp16 
+        """
+        if isinstance(arg, relay.Var) or isinstance(arg, relay.Constant):
+            return True
+        elif isinstance(arg, relay.Call):
+            return (
+                self.output_dtype_function(arg) == "fp16"
+                and self.result_map[arg] == graph_colors.ConversionCategory.GREEN
+            )
+        elif isinstance(arg, relay.TupleGetItem):
+            return self.is_fp16_compatible_arg(arg.tuple_value)
+        else:
+            raise ValueError(f"Unknown node type {type(arg)} for args")
+
 
 class PrintVisitor(ExprVisitor):
     def visit_call(self, call):
@@ -239,12 +149,13 @@ if __name__ == "__main__":
     visitor = PrintVisitor()
     visitor.visit(relay_node_out)
 
-    color_func = DefaultColorer()
+    color_func = graph_colors.DefaultColorer()
     colorer = InitialGraphColorer(color_func)
-    colorer.visit(relay_node_out) 
+    colorer.visit(relay_node_out)
 
-    propagater = PropagateColors(colorer.result_map, lambda x: 'float16')
+    propagater = PropagateColors(colorer.result_map, lambda x: "float16")
     propagater.visit_call(relay_node_out)
 
-    import pdb 
+    import pdb
+
     pdb.set_trace()
