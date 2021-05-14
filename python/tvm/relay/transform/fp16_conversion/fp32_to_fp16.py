@@ -44,7 +44,7 @@ class DefaultColorer:
 
     # These should always be done in fp16 if possible
     DEFAULT_GREEN_LIST = {
-        # Convolutions are important
+        # 
         "nn.conv1d",
         "nn.conv2d",
         "nn.conv3d",
@@ -60,6 +60,7 @@ class DefaultColorer:
         "nn.pad",
         "nn.batch_flatten",
         # Simple arithmetic
+        "add",
         "nn.bias_add",
         "nn.batch_norm",
         # Simple activations
@@ -74,12 +75,12 @@ class DefaultColorer:
         "nn.avg_pool1d",
         "nn.avg_pool2d",
         "nn.avg_pool3d",
-        "nn.global_max_pool1d",
+        ## "nn.global_max_pool1d", # does not exist
         "nn.global_max_pool2d",
-        "nn.global_max_pool3d",
-        "nn.global_avg_pool1d",
+        ## "nn.global_max_pool3d", # does not exist
+        ## "nn.global_avg_pool1d", # does not exist
         "nn.global_avg_pool2d",
-        "nn.global_avg_pool3d",
+        ## "nn.global_avg_pool3d", # does not exist
         "nn.adaptive_max_pool1d",
         "nn.adaptive_max_pool2d",
         "nn.adaptive_max_pool3d",
@@ -111,19 +112,20 @@ class DefaultColorer:
 
         # Create lookup table mapping relay op -> color in grpah
         self.lookup_table = {}
-        for op, val in [
+        for op_list, val in [
             (green_list, ConversionCategory.GREEN),
             (gray_list, ConversionCategory.GRAY),
             (red_list, ConversionCategory.RED),
         ]:
-            self.lookup_table[op] = val
+            for op in op_list:
+                self.lookup_table[op] = val
 
     def __call__(self, call_node: relay.Call, ignore_missing: bool = False) -> ConversionCategory:
         if call_node.op not in self.lookup_table:
             if ignore_missing:
                 return ConversionCategory.RED
             else:
-                raise ValueError(f"Unknown")
+                raise ValueError(f"Unknown op {call_node.op}")
 
         return self.lookup_table[call_node.op]
 
@@ -135,12 +137,13 @@ class DefaultColorer:
 class InitialGraphColorer(ExprVisitor):
     """Cast operations to the target type."""
 
-    def __init__(self, color_function: Callable[[relay.Expr], ConversionCategory]):
+    def __init__(self, color_function: Callable[[relay.Call], ConversionCategory]):
+        super().__init__()
         self.color_function = color_function
         self.color_of = {}
 
     def visit_call(self, call: relay.Call):
-        self.node_map[call] = self.color_function()
+        self.color_of[call] = self.color_function(call)
         super().visit_call(call)
 
 
@@ -202,3 +205,10 @@ if __name__ == "__main__":
 
     visitor = PrintVisitor()
     visitor.visit(relay_node_out)
+
+    color_func = DefaultColorer()
+    colorer = InitialGraphColorer(color_func)
+    colorer.visit(relay_node_out) 
+
+    import pdb 
+    pdb.set_trace()
