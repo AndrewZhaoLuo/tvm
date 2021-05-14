@@ -26,16 +26,19 @@ from tvm.relay.expr_functor import Call, ExprVisitor
 from tvm.relay.testing import resnet
 from tvm.relay.transform import InferType
 
-
 class ConversionCategory(enum.Enum):
     """
-    Green: always worth casting
+    Green: will cast to fp16 version of the op which takes in fp16 inputs
+    Gray: may cast after doing analysis
+    Red: will not cast to fp16 version
     """
 
     GREEN = "Green"
     GRAY = "Gray"
     RED = "Red"
 
+def create_op_list(op_list: List[str]) -> List[tvm.ir.Op]:
+    return [relay.op.get(op_name) for op_name in op_list]
 
 class DefaultColorer:
     # Default lists inspired from TF's classifications:
@@ -106,9 +109,9 @@ class DefaultColorer:
         red_list: List[str] = DEFAULT_RED_LIST,
     ):
         # Convert each list to entry
-        green_list = self.create_op_list(green_list)
-        gray_list = self.create_op_list(gray_list)
-        red_list = self.create_op_list(red_list)
+        green_list = create_op_list(green_list)
+        gray_list = create_op_list(gray_list)
+        red_list = create_op_list(red_list)
 
         # Create lookup table mapping relay op -> color in grpah
         self.lookup_table = {}
@@ -129,23 +132,53 @@ class DefaultColorer:
 
         return self.lookup_table[call_node.op]
 
-    @staticmethod
-    def create_op_list(op_list: List[str]) -> List[tvm.ir.Op]:
-        return [relay.op.get(op_name) for op_name in op_list]
-
 
 class InitialGraphColorer(ExprVisitor):
-    """Cast operations to the target type."""
+    """Color ops"""
 
     def __init__(self, color_function: Callable[[relay.Call], ConversionCategory]):
         super().__init__()
         self.color_function = color_function
-        self.color_of = {}
+        self.result_map = {}
 
     def visit_call(self, call: relay.Call):
-        self.color_of[call] = self.color_function(call)
+        self.result_map[call] = self.color_function(call)
         super().visit_call(call)
 
+class PropagateColors(ExprVisitor):
+    """Propagate colors outward through gray colored nodes.
+    
+    A gray node becomes green if all it's inputs are fp16 or compile time constants (which can be cast at compile time).
+    Otherwise the node will become red.
+    """
+
+    def __init__(self, result_map: Dict[relay.Call, ConversionCategory], output_dtype_function: Callable[[relay.Call], str]):
+        super().__init__()
+        self.result_map = result_map.copy()
+        self.output_dtype_function = output_dtype_function
+
+    def visit_call(self, call: relay.Call):
+        super().visit_call(call)
+
+        if self.result_map[call] != ConversionCategory.GRAY:
+            return 
+
+        new_args = []
+        for arg in call.args:
+            # Assume variables will have constant weights inserted eventually
+            if isinstance(arg, relay.Var) or isinstance(arg, relay.Constant):
+                arg = relay.cast(arg, 'float16') 
+            elif isinstance(arg, relay.Call):
+                if self.output_dtype_function(arg) == 'fp16' and self.result_map[arg] == ConversionCategory.GREEN:
+                    continue 
+                else:
+                    self.result_map[call] = ConversionCategory.RED 
+            elif isinstance(arg, relay.TupleGetItem):
+                continue 
+            else:
+                raise ValueError(f"Unknown node type {type(arg)} as arg for operation {call.op}")
+            
+            new_args.append(arg)
 
 class PrintVisitor(ExprVisitor):
     def visit_call(self, call):
@@ -209,6 +242,9 @@ if __name__ == "__main__":
     color_func = DefaultColorer()
     colorer = InitialGraphColorer(color_func)
     colorer.visit(relay_node_out) 
+
+    propagater = PropagateColors(colorer.result_map, lambda x: 'float16')
+    propagater.visit_call(relay_node_out)
 
     import pdb 
     pdb.set_trace()
