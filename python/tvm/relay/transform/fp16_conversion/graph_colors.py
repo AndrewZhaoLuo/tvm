@@ -3,16 +3,11 @@ from typing import *
 
 import tvm
 from tvm import relay
-from tvm.ir import IRModule
-from tvm.relay.analysis import count_layers
-from tvm.relay.expr_functor import Call, ExprVisitor
-from tvm.relay.testing import resnet
-from tvm.relay.transform import InferType
-from tvm.relay.transform.fp16_conversion import graph_colors
 
 
 def create_op_list(op_list: List[str]) -> List[tvm.ir.Op]:
     return [relay.op.get(op_name) for op_name in op_list]
+
 
 class ConversionCategory(enum.Enum):
     """
@@ -33,7 +28,6 @@ class DefaultColorer:
 
     # These should always be done in fp16 if possible
     DEFAULT_GREEN_LIST = {
-        #
         "nn.conv1d",
         "nn.conv2d",
         "nn.conv3d",
