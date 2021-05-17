@@ -73,6 +73,9 @@ class PropagateColors(ExprVisitor):
 
     def is_fp16_compatible_arg(self, arg: relay.Expr) -> bool:
         """
+        Returns whether the argument is either a constant at runtime or from a 
+        call that returns an fp16 value.
+
         For vars and constants, assume can cast to fp16 always and have constant folding
         """
         if isinstance(arg, relay.Var) or isinstance(arg, relay.Constant):
@@ -84,7 +87,12 @@ class PropagateColors(ExprVisitor):
             )
         elif isinstance(arg, relay.TupleGetItem):
             return self.is_fp16_compatible_arg(arg.tuple_value)
-        # TODO: propogate through other control flow
+        elif isinstance(arg, relay.Tuple):
+            for ele in arg:
+                if not self.is_fp16_compatible_arg(ele):
+                    return False
+            return True
+        # TODO: pass through other control flow
         else:
             raise ValueError(f"Unknown node type {type(arg)} for args")
 
