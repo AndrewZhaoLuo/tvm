@@ -17,6 +17,7 @@
 """Relay type recasting pass"""
 from typing import *
 
+import numpy as np
 import tvm
 from tvm import relay
 from tvm.relay.expr_functor import ExprVisitor
@@ -138,9 +139,9 @@ class RewriteBasedOnColors(relay.ExprMutator):
             new_attrs = tvm.ir.make_node(attr_type, **new_attr_dict)
         else:
             new_attrs = call.attrs
-        
+
         # Inject proper arg types here based on fp16 op description func
-        output = relay.Call(call_op, new_args, new_attrs)        
+        output = relay.Call(call_op, new_args, new_attrs)
 
         if fp16_op_output.accumulation_dtype != fp16_op_output.output_dtype:
             output = relay.cast(output, fp16_op_output.output_dtype)
@@ -172,62 +173,82 @@ class PrintVisitor(ExprVisitor):
 
         print(f"Operation {call.op} output dtype {output_dtype}, color {self.result_map[call]}")
 
-        if call.op == relay.op.get("nn.batch_norm"):
-            pass
-        elif call.op == relay.op.get("nn.conv2d"):
-            pass
-        elif call.op == relay.op.get("nn.relu"):
-            pass
-        elif call.op == relay.op.get("add"):
-            pass
-        elif call.op == relay.op.get("nn.global_avg_pool2d"):
-            pass
-        elif call.op == relay.op.get("nn.batch_flatten"):
-            pass
-        elif call.op == relay.op.get("nn.dense"):
-            pass
-        elif call.op == relay.op.get("nn.bias_add"):
-            pass
-        elif call.op == relay.op.get("nn.softmax"):
-            pass
-        else:
-            raise ValueError(f"Unknown call {call.op}")
 
-        # print()
-        # import pdb
-        # pdb.set_trace()
-        # print(call)
-
-
-if __name__ == "__main__":
-    c = resnet.get_net(1, 5, num_layers=18, image_shape=(1, 32, 32))
+def quantize_to_fp16(body: relay.Expr, debug: bool = False) -> relay.Expr:
+    mod = tvm.ir.IRModule.from_expr(body)
 
     infer_type_pass = InferType()
-
-    mod = tvm.IRModule.from_expr(c)
-
     out = infer_type_pass(mod)
-    relay_node_out = out["main"].body
+    body_typed = out["main"].body
 
     color_func = graph_colors.DefaultColorer()
     colorer = InitialGraphColorer(color_func)
-    colorer.visit(relay_node_out)
+    colorer.visit(body_typed)
 
-    print("Initial color")
-    visitor = PrintVisitor(colorer.result_map)
-    visitor.visit(relay_node_out)
+    if debug:
+        print("Initial color")
+        visitor = PrintVisitor(colorer.result_map)
+        visitor.visit(body_typed)
 
     fp16_op_descriptor = fp16_op_description.DefaultFP16TypeDefinition()
     propagater = PropagateColors(colorer.result_map, fp16_op_descriptor)
-    propagater.visit_call(relay_node_out)
+    propagater.visit_call(body_typed)
 
+    if debug:
+        print()
+        print("After propogate")
+        visitor = PrintVisitor(propagater.result_map)
+        visitor.visit(body_typed)
+
+    rewriter = RewriteBasedOnColors(propagater.result_map, fp16_op_descriptor)
+    out = rewriter.visit_call(body_typed)
+
+    return out
+
+
+def run_module(mod, mod_params):
+    dev = tvm.device("llvm", 0)
+    intrp = relay.create_executor("debug", mod, device=dev, target="llvm")
+    # in_data = [tvm.nd.array(value) for value in in_data.values()]
+    return intrp.evaluate()(**mod_params).asnumpy()
+
+
+def test_resnet18():
+    mod, mod_params = resnet.get_workload(1, 5, num_layers=18, image_shape=(1, 32, 32))
+    mod_params["data"] = np.random.uniform(-10, 10, (1, 1, 32, 32)).astype("float32")
+
+    results = run_module(mod, mod_params)
+    print(results)
+    print(results.shape)
     print()
-    print("After propogate")
-    visitor = PrintVisitor(propagater.result_map)
-    visitor.visit(relay_node_out)
 
-    rewriter = RewriteBasedOnColors(visitor.result_map, fp16_op_descriptor)
-    out = rewriter.visit_call(relay_node_out)
-    import pdb
+    output = quantize_to_fp16(mod["main"].body)
 
-    pdb.set_trace()
+    fp16_mod = tvm.ir.IRModule.from_expr(output)
+    results = run_module(fp16_mod, mod_params)
+    print(results)
+    print(results.shape)
+    print()
+
+
+def test_conv2d():
+    data = relay.var("data", dtype="float32", shape=(1, 3, 32, 32))
+    weight = relay.var("weight", dtype="float32", shape=(5, 3, 1, 1))
+    out = relay.nn.conv2d(
+        data, weight, data_layout="NCHW", kernel_layout="OIHW", out_dtype="float32"
+    )
+
+    mod = tvm.ir.IRModule.from_expr(out)
+    mod_params = {
+        "data": np.random.uniform(-10, 10, (1, 3, 32, 32)).astype("float32"),
+        "weight": np.random.uniform(-1, 1, (5, 3, 1, 1)).astype("float32"),
+    }
+    print(run_module(mod, mod_params).shape)
+
+    output_mod = tvm.ir.IRModule.from_expr(quantize_to_fp16(out))
+
+    print(run_module(output_mod, mod_params).shape)
+
+
+if __name__ == "__main__":
+    test_resnet18()
