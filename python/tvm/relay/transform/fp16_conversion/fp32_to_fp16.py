@@ -27,7 +27,11 @@ from tvm.relay.transform.fp16_conversion import fp16_op_description, graph_color
 
 
 class InitialGraphColorer(ExprVisitor):
-    """Color relay Call operations green, gray or red via a given color function."""
+    """Color relay Call operations green, gray or red via a given color function.
+    
+    These determine whether the operation will be operating on inputs in the fp16 or 
+    fp32 space.
+    """
 
     def __init__(self, color_function: Callable[[relay.Call], graph_colors.ConversionCategory]):
         super().__init__()
@@ -131,7 +135,10 @@ class RewriteBasedOnColors(relay.ExprMutator):
         self.result_map[output] = self.result_map[call]
 
         fp16_op_output = self.fp16_dtype_func(call)
-        if fp16_op_output.accumulation_dtype != fp16_op_output.output_dtype:
+        if (
+            fp16_op_output.accumulation_dtype is not None
+            and fp16_op_output.accumulation_dtype != fp16_op_output.output_dtype
+        ):
             output = relay.cast(output, fp16_op_output.output_dtype)
             self.result_map[output] = self.result_map[call]
 
@@ -157,7 +164,7 @@ class RewriteBasedOnColors(relay.ExprMutator):
                 new_args.append(arg)
         return new_args
 
-    def get_new_attrs(self, call: relay.Call, arg_cast_type: str) -> tvm.ir.Node: 
+    def get_new_attrs(self, call: relay.Call, arg_cast_type: str) -> tvm.ir.Node:
         # Create a new attrs node which overwrites the output type if it's a field
         if (
             call.attrs is not None
