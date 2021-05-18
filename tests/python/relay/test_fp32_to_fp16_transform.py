@@ -5,7 +5,7 @@ import tvm
 from numpy.lib.type_check import imag
 from tvm import relay
 from tvm.relay.expr_functor import ExprVisitor
-from tvm.relay.testing import densenet, squeezenet, mobilenet, resnet, resnet_3d
+from tvm.relay.testing import densenet, mobilenet, resnet, resnet_3d, squeezenet
 from tvm.relay.transform import InferType
 from tvm.relay.transform.fp16_conversion import fp32_to_fp16
 
@@ -22,11 +22,15 @@ def verify_fp32_fp16_output_close(mod, mod_params):
 
     fp16 = fp32_to_fp16.quantize_to_fp16(mod["main"].body)
     fp16_mod = tvm.ir.IRModule.from_expr(fp16)
-
     result_fp16 = run_module(fp16_mod, mod_params)
 
+    # Ensure the results are close
     np.testing.assert_allclose(result_fp32, result_fp16, rtol=1e-3)
-    assert result_fp16.dtype == "float16"
+
+    # But not too close where they are equal
+    np.testing.assert_raises(
+        AssertionError, np.testing.assert_array_equal, result_fp32, result_fp16
+    )
 
 
 def test_resnet18():
@@ -60,6 +64,7 @@ def test_densenet():
     mod_params["data"] = np.random.uniform(-10, 10, (1, 1, 224, 224)).astype("float32")
 
     verify_fp32_fp16_output_close(mod, mod_params)
+
 
 def test_squeezenet():
     np.random.seed(5628)

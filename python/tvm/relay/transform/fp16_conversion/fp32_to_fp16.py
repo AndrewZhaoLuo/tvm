@@ -73,7 +73,7 @@ class PropagateColors(ExprVisitor):
 
     def is_fp16_compatible_arg(self, arg: relay.Expr) -> bool:
         """
-        Returns whether the argument is either a constant at runtime or from a 
+        Returns whether the argument is either a constant at runtime or from a
         call that returns an fp16 value.
 
         For vars and constants, assume can cast to fp16 always and have constant folding
@@ -111,23 +111,29 @@ class RewriteBasedOnColors(relay.ExprMutator):
         if self.result_map[call] == graph_colors.ConversionCategory.GRAY:
             raise ValueError("Rewriting encountered gray! Remember to run PropagateColors pass!")
         elif self.result_map[call] == graph_colors.ConversionCategory.RED:
-            return super().visit_call(call)
+            # return super().visit_call(call)
+            arg_cast_type = "float32"
+        elif self.result_map[call] == graph_colors.ConversionCategory.GREEN:
+            arg_cast_type = "float16"
+            # return super().visit_call(call)
+        else:
+            raise ValueError(f"Unknown coloring {self.result_map[call]}")
 
         call_op = self.visit(call.op)
         args = [self.visit(arg) for arg in call.args]
         new_args = []
         for arg in args:
             if isinstance(arg, relay.Var) or isinstance(arg, relay.Constant):
-                new_args.append(relay.cast(arg, "float16"))
+                # Assume all vars and consts are by default fp32
+                new_args.append(relay.cast(arg, "float16") if arg_cast_type == "float16" else arg)
             elif isinstance(arg, relay.Call):
-                if self.result_map[arg] == graph_colors.ConversionCategory.GREEN:
-                    arg = (
-                        arg
-                        if self.fp16_dtype_func(arg).output_dtype == "float16"
-                        else relay.cast(arg, "float16")
-                    )
+                if (
+                    self.result_map[arg] == graph_colors.ConversionCategory.GREEN
+                    and self.fp16_dtype_func(arg).output_dtype == "float16"
+                ):
+                    arg = arg if arg_cast_type == "float16" else relay.cast(arg, "float32")
                 else:
-                    arg = relay.cast(arg, "float16")
+                    arg = relay.cast(arg, arg_cast_type)
                 new_args.append(arg)
             else:
                 new_args.append(arg)
@@ -135,7 +141,11 @@ class RewriteBasedOnColors(relay.ExprMutator):
         # TODO: what do we do about operations without control over the accumulation dtype?
         fp16_op_output = self.fp16_dtype_func(call)
 
-        if call.attrs is not None and "out_dtype" in call.attrs.keys():
+        if (
+            call.attrs is not None
+            and "out_dtype" in call.attrs.keys()
+            and arg_cast_type == "float16"
+        ):
             new_attr_dict = {}
             for attr in call.attrs.keys():
                 attr_value = call.attrs[attr]
