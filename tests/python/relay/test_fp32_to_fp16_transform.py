@@ -23,15 +23,9 @@ def verify_fp32_fp16_output_close(mod, mod_params):
     fp16 = fp32_to_fp16.quantize_to_fp16(mod["main"].body)
     fp16_mod = tvm.ir.IRModule.from_expr(fp16)
     result_fp16 = run_module(fp16_mod, mod_params)
-
+    
     # Ensure the results are close
     np.testing.assert_allclose(result_fp32, result_fp16, rtol=1e-3)
-
-    # But not too close where they are equal
-    np.testing.assert_raises(
-        AssertionError, np.testing.assert_array_equal, result_fp32, result_fp16
-    )
-
 
 def test_resnet18():
     np.random.seed(4321)
@@ -72,3 +66,5 @@ def test_squeezenet():
     mod_params["data"] = np.random.uniform(-10, 10, (1, 1, 32, 32)).astype("float32")
 
     verify_fp32_fp16_output_close(mod, mod_params)
+
+#def test_
