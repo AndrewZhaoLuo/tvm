@@ -18,16 +18,15 @@
 """
 Relay pass transformation infrastructure.
 """
-import types
-import inspect
 import functools
+import inspect
+import types
 import warnings
 
 import tvm.ir
-from tvm import te
+from tvm import relay, te
 from tvm.runtime import ndarray as _nd
 
-from tvm import relay
 from . import _ffi_api
 
 
@@ -1148,3 +1147,10 @@ def AnnotateSpans():
         The regsistered AnnotateSpans pass.
     """
     return _ffi_api.AnnotateSpans()
+
+
+def RewriteFP16(debug=False):
+    """
+    Cool stuff. TODO
+    """
+    return _ffi_api.RewriteFP16(debug)
