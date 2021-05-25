@@ -257,10 +257,9 @@ Expr RewriteFp16Graph(const Expr& expr, bool debug) {
   // Insert an extraneous cast to FP32 to match old module output
   Expr result = rewriter.Mutate(expr);
 
-  // Insert an extra FP32 cast to match the old FP32 output type.
-  // TODO: look into how to change the type annotation
+  // Old type annotations may no longer be accurate so rewrite
   if (const FunctionNode* func = result.as<FunctionNode>()) {
-    const_cast<FunctionNode*>(func)->body = Cast(func->body, DataType::Float(32));
+    const_cast<FunctionNode*>(func)->ret_type = Type(nullptr);
   }
 
   return result;
