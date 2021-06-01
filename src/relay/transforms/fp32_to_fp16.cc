@@ -94,6 +94,31 @@ class RewriteBasedOnColors : public ExprMutator {
   CallColorMap color_map;
   OutputDtypeFunc output_func;
 
+  Expr cast_helper(Expr arg, DataType arg_cast_datatype, DataType arg_current_datatype) {
+    Type checked_type = arg->checked_type();
+    if (checked_type->IsInstance<TensorTypeNode>()) {
+      return arg_cast_datatype == arg_current_datatype ? arg : Cast(arg, arg_cast_datatype);
+    } else if (checked_type->IsInstance<TupleTypeNode>()) {
+      return arg;
+      TupleNode* tuple_node = const_cast<TupleNode*>(arg.as<TupleNode>());
+      Array<Expr> fields = tuple_node->fields;
+      Array<Expr> new_fields;
+      // Array<Type> new_types;
+      for (Expr expr : fields) {
+        Expr result = cast_helper(expr, arg_cast_datatype, arg_current_datatype);
+        new_fields.push_back(result);
+        // new_types.push_back(result->checked_type_);
+      }
+      // we used mutation we are evil!
+      Tuple ret = Tuple(new_fields, tuple_node->span);
+
+      // ret->checked_type_ = TupleType(new_types, checked_type->span);
+      return std::move(ret);
+    } else {
+      throw std::invalid_argument("Unknown node while casting!");
+    }
+  }
+
   Array<Expr> get_new_args(const CallNode* call, DataType arg_cast_datatype) {
     Array<Expr> ret;
     for (Expr arg : call->args) {
@@ -101,6 +126,7 @@ class RewriteBasedOnColors : public ExprMutator {
       Expr new_arg;
       if (arg->IsInstance<VarNode>() || arg->IsInstance<ConstantNode>()) {
         // Assume every var and const node is by default fp32, so cast if we are not casting to that
+        // new_arg = cast_helper(arg, arg_cast_datatype, DataType::Float(32));
         new_arg = arg_cast_datatype != DataType::Float(32) ? Cast(arg, arg_cast_datatype) : arg;
       } else if (const CallNode* arg_call = arg.as<CallNode>()) {
         auto entry = color_map.find(arg_call);
@@ -111,11 +137,15 @@ class RewriteBasedOnColors : public ExprMutator {
 
         // Cast result of a call, if we are going to rewrite it
         if (color == GREEN) {
-          new_arg = output_func(arg_call).output_dtype != arg_cast_datatype
-                        ? Cast(arg, arg_cast_datatype)
-                        : arg;
+          // new_arg = cast_helper(arg, arg_cast_datatype, output_func(arg_call).output_dtype);
+
+          new_arg = arg_cast_datatype == output_func(arg_call).output_dtype
+                        ? arg
+                        : Cast(arg, arg_cast_datatype);
         } else {
           // Was RED, assume fp32 output so cast to type
+          // new_arg = cast_helper(arg, arg_cast_datatype, DataType::Float(32));
+
           new_arg = arg_cast_datatype != DataType::Float(32) ? Cast(arg, arg_cast_datatype) : arg;
         }
       } else {
@@ -175,8 +205,13 @@ class RewriteBasedOnColors : public ExprMutator {
   RewriteBasedOnColors(CallColorMap color_map,
                        OutputDtypeFunc output_func = DefaultFP16OpDefinition())
       : color_map(color_map), output_func(output_func) {}
+
   Expr VisitExpr_(const LetNode* op) final {
-    throw std::invalid_argument("Let nodes not supported for FP16 for now.");
+    Var var = Downcast<Var>(this->Mutate(op->var));
+    auto value = this->Mutate(op->value);
+    auto body = this->Mutate(op->body);
+
+    return Let(var, value, body, op->span);
   }
 
   Expr VisitExpr_(const CallNode* call) final {
@@ -209,6 +244,39 @@ class RewriteBasedOnColors : public ExprMutator {
 
     return output;
   };
+
+  Expr VisitExpr_(const FunctionNode* op) {
+    Expr expr = ExprMutator::VisitExpr_(op);
+
+    // Mutate func by inserting cast to fp32 at the end
+    FunctionNode* func = const_cast<FunctionNode*>(expr.as<FunctionNode>());
+
+    // Send empty DataType to always cast
+    Expr arg = func->body;
+    Expr new_result;
+
+    Type checked_type = arg->checked_type();
+    if (checked_type->IsInstance<TensorTypeNode>()) {
+      new_result = Cast(arg, DataType::Float(32));
+    } else if (checked_type->IsInstance<TupleTypeNode>()) {
+      return arg;
+      TupleNode* tuple_node = const_cast<TupleNode*>(arg.as<TupleNode>());
+      Array<Expr> fields = tuple_node->fields;
+      Array<Expr> new_fields;
+      // Array<Type> new_types;
+      for (Expr expr : fields) {
+        Expr result = Cast(expr, DataType::Float(32));
+        new_fields.push_back(result);
+        // new_types.push_back(result->checked_type_);
+      }
+      new_result = Tuple(new_fields, tuple_node->span);
+    } else {
+      throw std::invalid_argument("Unknown node while casting!");
+    }
+
+    func->body = new_result;
+    return expr;
+  }
 };
 
 class ColorPrinter : public ExprVisitor {
@@ -257,11 +325,6 @@ Expr RewriteFp16Graph(const Expr& expr, bool debug) {
   // Insert an extraneous cast to FP32 to match old module output
   Expr result = rewriter.Mutate(expr);
 
-  // Old type annotations may no longer be accurate so rewrite
-  if (const FunctionNode* func = result.as<FunctionNode>()) {
-    const_cast<FunctionNode*>(func)->ret_type = Type(nullptr);
-  }
-
   return result;
 }
 
@@ -272,7 +335,7 @@ Pass RewriteFP16(bool debug) {
       [=](Function f, IRModule m, PassContext pc) {
         return Downcast<Function>(RewriteFp16Graph(f, debug));
       };
-  return CreateFunctionPass(pass_func, 10, "RewriteFp16", {});
+  return CreateFunctionPass(pass_func, 10, "RewriteFp16", {"InferType"});
 }
 
 TVM_REGISTER_GLOBAL("relay._transform.RewriteFP16").set_body_typed(RewriteFP16);

@@ -6,7 +6,7 @@ import tvm
 from tvm import relay
 from tvm.relay.op.tensor import exp
 from tvm.relay.testing import densenet, lstm, mobilenet, resnet, resnet_3d, squeezenet
-from tvm.relay.transform import RewriteFP16
+from tvm.relay.transform import InferType, RewriteFP16
 
 
 def run_module(mod, mod_params):
