@@ -9,7 +9,7 @@
 
 using ExprColorMap = std::unordered_map<const ExprNode*, FP16ConversionCategory>;
 using ColorFunc = std::function<FP16ConversionCategory(const CallNode*)>;
-using OutputDtypeFunc = std::function<FP16OpDType(const CallNode*)>;
+using OutputDtypeFunc = std::function<FP16OpDType(const CallNode*ƒ)>;
 
 class FP32ToFP16 : public ExprMutator {
  private:

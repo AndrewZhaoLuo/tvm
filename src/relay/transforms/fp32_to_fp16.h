@@ -1,5 +1,6 @@
 #include <tvm/ir/op.h>
 #include <tvm/relay/expr.h>
+#include <tvm/relay/function.h>
 
 #include <string>
 #include <unordered_map>
@@ -96,24 +97,28 @@ class DefaultFP16Colorer {
     }
   }
 
-  FP16ConversionCategory operator()(const CallNode* call, bool ignore_missing = false) {
-    auto* op_node = (call->op).as<tvm::OpNode>();
-    if (op_node == nullptr) {
-      throw std::invalid_argument("FP16 conversion only supports call nodes with op calls.");
-    }
+  FP16ConversionCategory operator()(const CallNode* call, bool ignore_missing = true) {
+    if (auto* op_node = (call->op).as<tvm::OpNode>()) {
+      std::string op_name = op_node->name;
+      auto color = op_to_initial_color.find(op_name);
 
-    std::string op_name = op_node->name;
-    auto color = op_to_initial_color.find(op_name);
-
-    if (color == op_to_initial_color.end()) {
-      if (ignore_missing) {
-        return RED;
-      } else {
-        throw std::invalid_argument("Op name " + op_name + " not in included lists!.");
+      if (color == op_to_initial_color.end()) {
+        if (ignore_missing) {
+          LOG(WARNING) << "Op name " + op_name + " not in included in fp16 conversion lists!.";
+          return RED;
+        } else {
+          LOG(FATAL) << "Op name " + op_name + " not in included in fp16 lists!.";
+        }
       }
-    }
 
-    return color->second;
+      return color->second;
+    } else if (auto* func_node = (call->op).as<FunctionNode>()) {
+      // Keep to avoid messing with function signatures, assume we have a way to fold them in later
+      return RED;
+    } else {
+      LOG(FATAL) << "FP16 conversion only supports call nodes with op calls got " << call->op;
+      return RED;
+    }
   }
 };
 

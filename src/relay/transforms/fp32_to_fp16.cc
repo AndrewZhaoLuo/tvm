@@ -42,7 +42,7 @@ class PropagateColors : public ExprVisitor {
     ExprVisitor::VisitExpr_(l);
     auto result = color_map.find(l);
     if (result == color_map.end()) {
-      throw std::invalid_argument("Unknown node not in initial color map!");
+      LOG(FATAL) << "Unknown node not in initial color map!";
     }
     FP16ConversionCategory color = result->second;
     if (color != GRAY) return;
@@ -63,7 +63,7 @@ class PropagateColors : public ExprVisitor {
     } else if (const CallNode* call = arg.as<CallNode>()) {
       auto result = color_map.find(call);
       if (result == color_map.end()) {
-        throw std::invalid_argument("Unknown node not in initial color map!");
+        LOG(FATAL) << "Unknown node not in initial color map!";
       }
       FP16ConversionCategory color = result->second;
       return color == GREEN && func(call).output_dtype == DataType::Float(16);
@@ -77,7 +77,7 @@ class PropagateColors : public ExprVisitor {
       }
       return true;
     } else {
-      throw std::invalid_argument("Unknown node type " + arg->GetTypeKey());
+      LOG(FATAL) << "Unknown node not in initial color map!";
     }
 
     return true;
@@ -94,21 +94,51 @@ class RewriteBasedOnColors : public ExprMutator {
   CallColorMap color_map;
   OutputDtypeFunc output_func;
 
+  Expr GetType(const Expr& expr) {
+    auto mod = IRModule::FromExpr(expr);
+    mod = transform::InferType()(mod);
+    if (expr.as<FunctionNode>()) {
+      return mod->Lookup("main");
+    } else {
+      return mod->Lookup("main").as<FunctionNode>()->body;
+    }
+  }
+
+  Expr cast_helper(Expr expr, Type t, DataType wanted_dtype) {
+    if (const TensorTypeNode* tensor_type = t.as<TensorTypeNode>()) {
+      // If this is not a floating point type, do not cast. E.g. it might be an integer
+      if (!(tensor_type->dtype).is_float()) return expr;
+      return tensor_type->dtype == wanted_dtype ? expr : Cast(expr, wanted_dtype);
+    } else if (const TupleTypeNode* tuple_type = t.as<TupleTypeNode>()) {
+      Array<Expr> new_expr;
+      for (int i = 0; i < (tuple_type->fields).size(); i++) {
+        new_expr.push_back(cast_helper(GetField(expr, i), (tuple_type->fields)[i], wanted_dtype));
+      }
+      return Tuple(new_expr);
+    } else {
+      LOG(FATAL) << "Unknown type " << t;
+      return expr;
+    }
+  }
+
   Array<Expr> get_new_args(const CallNode* call, DataType arg_cast_datatype) {
     Array<Expr> ret;
     for (Expr arg : call->args) {
       arg = VisitExpr(arg);
+      Type arg_type = GetType(arg)->checked_type();
       Expr new_arg;
       if (arg->IsInstance<VarNode>() || arg->IsInstance<ConstantNode>()) {
         // Assume every var and const node is by default fp32, so cast if we are not casting to that
-        new_arg = arg_cast_datatype != DataType::Float(32) ? Cast(arg, arg_cast_datatype) : arg;
+        new_arg = cast_helper(arg, arg_type, arg_cast_datatype);
       } else if (const CallNode* arg_call = arg.as<CallNode>()) {
         auto entry = color_map.find(arg_call);
         if (entry == color_map.end()) {
-          throw std::invalid_argument("Found element not in color map!");
+          LOG(FATAL) << "Unknown node not in initial color map!";
         }
-        FP16ConversionCategory color = entry->second;
+        // FP16ConversionCategory color = entry->second;
 
+        new_arg = cast_helper(arg, arg_type, arg_cast_datatype);
+        /*
         // Cast result of a call, if we are going to rewrite it
         if (color == GREEN) {
           new_arg = output_func(arg_call).output_dtype != arg_cast_datatype
@@ -116,8 +146,9 @@ class RewriteBasedOnColors : public ExprMutator {
                         : arg;
         } else {
           // Was RED, assume fp32 output so cast to type
-          new_arg = arg_cast_datatype != DataType::Float(32) ? Cast(arg, arg_cast_datatype) : arg;
+          new_arg = cast_helper(arg, arg_type, arg_cast_datatype);
         }
+        */
       } else {
         // Else assume it's a composite type composed of cast elements
         new_arg = arg;
@@ -175,18 +206,26 @@ class RewriteBasedOnColors : public ExprMutator {
   RewriteBasedOnColors(CallColorMap color_map,
                        OutputDtypeFunc output_func = DefaultFP16OpDefinition())
       : color_map(color_map), output_func(output_func) {}
-  Expr VisitExpr_(const LetNode* op) final {
-    throw std::invalid_argument("Let nodes not supported for FP16 for now.");
+
+  Expr VisitExpr_(const LetNode* op) {
+    Var var = Downcast<Var>(this->Mutate(op->var));
+    auto value = this->Mutate(op->value);
+    auto body = this->Mutate(op->body);
+
+    VarNode* mutable_var = const_cast<VarNode*>(var.as<VarNode>());
+
+    // mutable_var->type_annotation = Type(nullptr);
+    // mutable_var->checked_type_ = value->checked_type();
+    return Let(var, value, body, op->span);
   }
 
   Expr VisitExpr_(const CallNode* call) final {
     auto result = color_map.find(call);
-    if (result == color_map.end()) throw std::invalid_argument("Found element not in color map!");
+    if (result == color_map.end()) LOG(FATAL) << "Unknown node not in initial color map!";
     FP16ConversionCategory color = result->second;
 
     if (color == GRAY) {
-      throw std::invalid_argument(
-          "Had gray colored node during rewrite! Make sure other passes color all nodes!");
+      LOG(FATAL) << "Had gray colored node during rewrite! Make sure other passes color all nodes!";
     }
 
     Expr new_op = Mutate(call->op);
