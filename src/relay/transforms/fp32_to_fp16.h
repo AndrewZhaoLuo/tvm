@@ -1,5 +1,6 @@
 #include <tvm/ir/op.h>
 #include <tvm/relay/expr.h>
+#include <tvm/relay/function.h>
 
 #include <string>
 #include <unordered_map>
@@ -38,10 +39,15 @@ OpStringSet DEFAULT_GRAY_LIST({
     "nn.pad",
     "nn.batch_flatten",
     "concatenate",
+    "zeros",
+    "split",
     // Simple arithmetic
     "add",
     "nn.bias_add",
     "nn.batch_norm",
+    "sigmoid",
+    "tanh",
+    "multiply",
     // Simple activations
     "nn.relu",
     "nn.leaky_relu",
@@ -97,23 +103,27 @@ class DefaultFP16Colorer {
   }
 
   FP16ConversionCategory operator()(const CallNode* call, bool ignore_missing = false) {
-    auto* op_node = (call->op).as<tvm::OpNode>();
-    if (op_node == nullptr) {
-      throw std::invalid_argument("FP16 conversion only supports call nodes with op calls.");
-    }
+    if (auto* op_node = (call->op).as<tvm::OpNode>()) {
+      std::string op_name = op_node->name;
+      auto color = op_to_initial_color.find(op_name);
 
-    std::string op_name = op_node->name;
-    auto color = op_to_initial_color.find(op_name);
-
-    if (color == op_to_initial_color.end()) {
-      if (ignore_missing) {
-        return RED;
-      } else {
-        throw std::invalid_argument("Op name " + op_name + " not in included lists!.");
+      if (color == op_to_initial_color.end()) {
+        if (ignore_missing) {
+          return RED;
+        } else {
+          throw std::invalid_argument("Op name " + op_name +
+                                      " not in included lists! Please add and rebuild.");
+        }
       }
-    }
 
-    return color->second;
+      return color->second;
+    } else if (auto* func_node = (call->op).as<FunctionNode>()) {
+      // may lead to extraneous casting
+      return RED;
+    } else {
+      // TODO
+      throw std::invalid_argument("Unknown node type in default coloring!");
+    }
   }
 };
 
