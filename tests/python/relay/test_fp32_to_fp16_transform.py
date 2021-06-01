@@ -5,7 +5,7 @@ import numpy as np
 import tvm
 from tvm import relay
 from tvm.relay.op.tensor import exp
-from tvm.relay.testing import densenet, mobilenet, resnet, resnet_3d, squeezenet
+from tvm.relay.testing import densenet, lstm, mobilenet, resnet, resnet_3d, squeezenet
 from tvm.relay.transform import RewriteFP16
 
 
@@ -16,6 +16,9 @@ def run_module(mod, mod_params):
 
 
 def verify_fp32_fp16_output_close(mod, mod_params, rtol=1e-3, atol=0):
+    import pdb
+
+    pdb.set_trace()
     fp16_mod = RewriteFP16()(mod)
     result_fp16 = run_module(fp16_mod, mod_params)
     result_fp32 = run_module(mod, mod_params)
@@ -63,6 +66,14 @@ def test_squeezenet():
     np.random.seed(5628)
     mod, mod_params = squeezenet.get_workload(1, 5, image_shape=(1, 32, 32))
     mod_params["data"] = np.random.uniform(-10, 10, (1, 1, 32, 32)).astype("float32")
+
+    verify_fp32_fp16_output_close(mod, mod_params)
+
+
+def test_lstm():
+    np.random.seed(5628)
+    mod, mod_params = lstm.get_workload(5, 5, batch_size=2)
+    mod_params["data"] = np.random.uniform(-10, 10, (2, 5)).astype("float32")
 
     verify_fp32_fp16_output_close(mod, mod_params)
 
