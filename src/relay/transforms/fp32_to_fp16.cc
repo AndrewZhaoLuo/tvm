@@ -309,6 +309,11 @@ class RewriteBasedOnColors : public ExprMutator {
 
     return output;
   };
+
+  Expr VisitExpr_(const FunctionNode* func) final {
+    const_cast<FunctionNode*>(func)->ret_type = Type(nullptr);
+    return ExprMutator::VisitExpr_(func);
+  }
 };
 
 class ColorPrinter : public ExprVisitor {

@@ -39,8 +39,13 @@ OpStringSet DEFAULT_GRAY_LIST({
     "nn.pad",
     "nn.batch_flatten",
     "concatenate",
+    "zeros",
+    "split",
     // Simple arithmetic
     "add",
+    "subtract",
+    //"multiply",
+    "divide",
     "nn.bias_add",
     "nn.batch_norm",
     // Simple activations
@@ -48,6 +53,9 @@ OpStringSet DEFAULT_GRAY_LIST({
     "nn.leaky_relu",
     "nn.prelu",
     "nn.dropout",
+    // Complicated activations which saturate in a narrow range
+    "sigmoid",
+    "tanh",
     // Pooling operations
     "nn.max_pool1d",
     "nn.max_pool2d",
