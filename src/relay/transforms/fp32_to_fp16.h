@@ -44,7 +44,7 @@ OpStringSet DEFAULT_GRAY_LIST({
     // Simple arithmetic
     "add",
     "subtract",
-    //"multiply",
+    "multiply",
     "divide",
     "nn.bias_add",
     "nn.batch_norm",

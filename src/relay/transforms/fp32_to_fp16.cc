@@ -20,8 +20,6 @@ struct hash<tvm::DataType> {
 namespace tvm {
 namespace relay {
 
-// Only for pairs of std::hash-able types for simplicity.
-// You can of course template this struct to allow other hash functions
 struct pair_hash {
   template <class T1, class T2>
   std::size_t operator()(const std::pair<T1, T2>& pair) const {
@@ -194,8 +192,11 @@ class RewriteBasedOnColors : public ExprMutator {
           new_arg = cast_helper(arg, arg_type, arg_cast_datatype);
         }
         */
+      } else if (const TupleGetItemNode* get_item = arg.as<TupleGetItemNode>()) {
+        new_arg = cast_helper(arg, arg_type, arg_cast_datatype);
       } else {
-        // Else assume it's a composite type composed of cast elements
+        LOG(FATAL) << "Unknown argument type " << arg << " type: " << arg_type;
+        // Default behavior: use the cast_helper
         new_arg = arg;
       }
 
@@ -300,6 +301,7 @@ class RewriteBasedOnColors : public ExprMutator {
     Array<Expr> new_args = get_new_args(call, arg_cast_dtype);
     Attrs new_attrs = get_new_attrs(call, output_dtypes.accumulation_dtype);
     Expr output = Call(new_op, new_args, new_attrs, call->type_args, call->span);
+
     color_map[output.as<CallNode>()] = color_map[call];
 
     if (output_dtypes.accumulation_dtype != output_dtypes.output_dtype) {
