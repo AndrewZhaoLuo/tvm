@@ -23,8 +23,7 @@ using OpStringSet = std::unordered_set<std::string>;
 
 // Default lists inspired from TF's classifications:
 // github.com/tensorflow/tensorflow/blob/v2.5.0/tensorflow/core/grappler/optimizers/auto_mixed_precision_lists.h
-// They might have a bias toward NVidia's Tensor Cores so be aware and modify lists per your
-// hardware choice.
+// They have a bias toward Nvidia Tensor Cores so modify lists per your hardware choice.
 OpStringSet DEFAULT_GREEN_LIST({
     "nn.conv1d",
     "nn.conv2d",
@@ -63,12 +62,12 @@ OpStringSet DEFAULT_GRAY_LIST({
     "nn.avg_pool1d",
     "nn.avg_pool2d",
     "nn.avg_pool3d",
-    // "nn.global_max_pool1d", // does not exist
+    // "nn.global_max_pool1d", // does not exist yet
     "nn.global_max_pool2d",
-    // "nn.global_max_pool3d", // does not exist
-    // "nn.global_avg_pool1d", // does not exist
+    // "nn.global_max_pool3d", // does not exist yet
+    // "nn.global_avg_pool1d", // does not exist yet
     "nn.global_avg_pool2d",
-    // "nn.global_avg_pool3d", // does not exist
+    // "nn.global_avg_pool3d", // does not exist yet
     "nn.adaptive_max_pool1d",
     "nn.adaptive_max_pool2d",
     "nn.adaptive_max_pool3d",
@@ -77,11 +76,11 @@ OpStringSet DEFAULT_GRAY_LIST({
     "nn.adaptive_avg_pool3d",
 });
 OpStringSet DEFAULT_RED_LIST({
-    // Activations with exponents or division
+    // In general if |f(x)| >> |x| for some expected inputs to the op then put it here.
+    // Activations with exponents or dividing by small numbers
     "nn.cross_entropy",
     "nn.cross_entropy_with_logits",
     "nn.softmax",
-    // Other
     "nn.l2_normalize",
 });
 
@@ -121,7 +120,7 @@ class DefaultFP16Colorer {
 
       return color->second;
     } else if (auto* func_node = (call->op).as<FunctionNode>()) {
-      // Keep to avoid messing with function signatures, assume we have a way to fold them in later
+      // Make RED to avoid messing with function types which are complicated, fold in other pass
       return RED;
     } else {
       LOG(FATAL) << "FP16 conversion only supports call nodes with op calls got " << call->op;

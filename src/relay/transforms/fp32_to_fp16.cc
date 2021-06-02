@@ -56,9 +56,22 @@ class PropagateColors : public ExprVisitor {
       LOG(FATAL) << "Unknown node not in initial color map!";
     }
     FP16ConversionCategory color = result->second;
-    if (color != GRAY) return;
+
+    // Red and Green colored nodes are final, we only care about gray nodes
+    if (color != GRAY) {
+      ExprVisitor::VisitExpr_(l);
+      return;
+    };
+
+    // Make sure to visit everything, paying attention to args
+    this->VisitSpan(l->span);
+    this->VisitExpr(l->op);
+    for (auto ty_arg : l->type_args) {
+      this->VisitType(ty_arg);
+    }
 
     for (Expr arg : l->args) {
+      this->VisitExpr(arg);
       if (!is_fp16_compatible_arg(arg)) {
         color_map[l] = RED;
         return;
@@ -69,6 +82,8 @@ class PropagateColors : public ExprVisitor {
   }
 
   bool is_fp16_compatible_arg(Expr arg) {
+    // TODO: examine for correctness -- think about conditions and rethink this method
+    // Whether this is an argument which can/should be casted to fp16
     if (arg->IsInstance<VarNode>() || arg->IsInstance<ConstantNode>()) {
       return true;
     } else if (const CallNode* call = arg.as<CallNode>()) {
@@ -107,6 +122,7 @@ class RewriteBasedOnColors : public ExprMutator {
   CachedCastNodes cached_cast_nodes;
 
   Expr GetTypedExpr(const Expr& expr) {
+    // Returns typed version of the expression whose type can be gotten using checked_type().
     auto mod = IRModule::FromExpr(expr);
     mod = transform::InferType()(mod);
     if (expr.as<FunctionNode>()) {
@@ -117,6 +133,8 @@ class RewriteBasedOnColors : public ExprMutator {
   }
 
   Expr cached_cast(Expr expr, DataType expr_dtype, DataType wanted_dtype) {
+    // Cast tensor to the wanted datatype, returning a cached version if it's already been done.
+
     // If this is not a floating point type, do not cast. E.g. it might be an integer
     if (!expr_dtype.is_float()) {
       return expr;
@@ -142,7 +160,8 @@ class RewriteBasedOnColors : public ExprMutator {
     return result;
   }
 
-  Expr cast_helper(Expr expr, Type t, DataType wanted_dtype) {
+  Expr arg_cast_helper(Expr expr, Type t, DataType wanted_dtype) {
+    // Helper for casting arguments to call_nodes handling all relevant cases.
     if (const TensorTypeNode* tensor_type = t.as<TensorTypeNode>()) {
       return cached_cast(expr, tensor_type->dtype, wanted_dtype);
     } else if (const TupleTypeNode* tuple_type = t.as<TupleTypeNode>()) {
@@ -150,7 +169,8 @@ class RewriteBasedOnColors : public ExprMutator {
       for (int i = 0; i < (tuple_type->fields).size(); i++) {
         Expr tuple_expr_element = GetField(expr, i);
         Type tuple_expr_element_dtype = (tuple_type->fields)[i];
-        new_expr.push_back(cast_helper(tuple_expr_element, tuple_expr_element_dtype, wanted_dtype));
+        new_expr.push_back(
+            arg_cast_helper(tuple_expr_element, tuple_expr_element_dtype, wanted_dtype));
       }
       return Tuple(new_expr);
     } else {
@@ -164,46 +184,7 @@ class RewriteBasedOnColors : public ExprMutator {
     for (Expr arg : call->args) {
       arg = VisitExpr(arg);
       Type arg_type = GetTypedExpr(arg)->checked_type();
-      Expr new_arg;
-      if (arg->IsInstance<VarNode>() || arg->IsInstance<ConstantNode>()) {
-        // Assume every var and const node is by default fp32, so cast if we are not casting to that
-        new_arg = cast_helper(arg, arg_type, arg_cast_datatype);
-      } else if (const CallNode* arg_call = arg.as<CallNode>()) {
-        auto entry = color_map.find(arg_call);
-        if (entry == color_map.end()) {
-          LOG(FATAL) << "Unknown node not in initial color map!";
-        }
-        // FP16ConversionCategory color = entry->second;
-
-        new_arg = cast_helper(arg, arg_type, arg_cast_datatype);
-        /*
-        // Cast result of a call, if we are going to rewrite it
-        if (color == GREEN) {
-          new_arg = output_func(arg_call).output_dtype != arg_cast_datatype
-                        ? Cast(arg, arg_cast_datatype)
-                        : arg;
-        } else {
-          // Was RED, assume fp32 output so cast to type
-          new_arg = cast_helper(arg, arg_type, arg_cast_datatype);
-        }
-        */
-      } else if (const TupleGetItemNode* get_item = arg.as<TupleGetItemNode>()) {
-        new_arg = cast_helper(arg, arg_type, arg_cast_datatype);
-      } else if (const TupleNode* tuple = arg.as<TupleNode>()) {
-        Array<Expr> new_elements;
-        for (int i = 0; i < (tuple->fields).size(); i++) {
-          Expr field = GetField(arg, i);
-          Type tuple_expr_element_dtype = (arg_type.as<TupleTypeNode>()->fields)[i];
-          new_elements.push_back(cast_helper(field, tuple_expr_element_dtype, arg_cast_datatype));
-        }
-        new_arg = Tuple(new_elements);
-      } else {
-        LOG(FATAL) << "Unknown argument type " << arg << " type: " << arg_type;
-        // Default behavior: use the cast_helper
-        new_arg = arg;
-      }
-
-      ret.push_back(new_arg);
+      ret.push_back(arg_cast_helper(arg, arg_type, arg_cast_datatype));
     }
 
     return ret;
@@ -250,6 +231,8 @@ class RewriteBasedOnColors : public ExprMutator {
   template <typename T>
   void modify_output_dtype(const T* attrs, DataType accumulation_dtype) {
     // Helper template to modify relevant attributes with out_dtype type.
+    // These represent accumulation dtypes for some operations e.g.
+    // conv2d might take in fp16 and give a fp32 result.
     // TODO: think about a better way to do this
     T* mutable_attrs = const_cast<T*>(attrs);
     mutable_attrs->out_dtype = accumulation_dtype;
@@ -258,6 +241,8 @@ class RewriteBasedOnColors : public ExprMutator {
   template <typename T>
   void modify_dtype(const T* attrs, DataType accumulation_dtype) {
     // Helper template to modify relevant attributes with dtype type.
+    // This determines the output dtype for some ops. For example
+    // zeros creates a tensor of zeros of the specified dtype.
     // TODO: think about a better way to do this
     T* mutable_attrs = const_cast<T*>(attrs);
     mutable_attrs->dtype = accumulation_dtype;
@@ -269,10 +254,10 @@ class RewriteBasedOnColors : public ExprMutator {
       : color_map(color_map), output_func(output_func) {}
 
   Expr VisitExpr_(const LetNode* op) final {
-    // First convert the bound value to FP16
+    // First convert as much as the bound computation to FP16 as possible
     Expr value = this->Mutate(op->value);
 
-    // Then rewrite the var type
+    // Then rewrite the var type and associated expression
     Var var = Downcast<Var>(this->Mutate(op->var));
     VarNode* mutable_var = const_cast<VarNode*>((op->var).as<VarNode>());
     mutable_var->type_annotation = GetTypedExpr(value)->checked_type();
@@ -306,16 +291,17 @@ class RewriteBasedOnColors : public ExprMutator {
     Expr output = Call(new_op, new_args, new_attrs, call->type_args, call->span);
 
     color_map[output.as<CallNode>()] = color_map[call];
-
     if (output_dtypes.accumulation_dtype != output_dtypes.output_dtype) {
       output = Cast(output, output_dtypes.output_dtype);
       color_map[output.as<CallNode>()] = color_map[call];
     }
 
+    // TODO: remember to visit everything! Def missing arg dtypes rn
     return output;
   };
 
   Expr VisitExpr_(const FunctionNode* func) final {
+    // Erase the ret_type annotation and let the pass recalculate
     const_cast<FunctionNode*>(func)->ret_type = Type(nullptr);
     return ExprMutator::VisitExpr_(func);
   }
