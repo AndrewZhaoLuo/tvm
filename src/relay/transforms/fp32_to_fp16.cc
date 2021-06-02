@@ -8,15 +8,6 @@
 
 #include "pattern_utils.h"
 
-namespace std {
-template <>
-struct hash<tvm::DataType> {
-  std::size_t operator()(tvm::DataType const& dtype) const {
-    return dtype.code() * 3 + dtype.bits() * 5 + dtype.lanes() * 7;
-  }
-};
-}  // namespace std
-
 namespace tvm {
 namespace relay {
 
@@ -125,9 +116,9 @@ class RewriteBasedOnColors : public ExprMutator {
     }
   }
 
-  Expr cached_cast(Expr expr, DataType dtype, DataType wanted_dtype) {
+  Expr cached_cast(Expr expr, DataType expr_dtype, DataType wanted_dtype) {
     // If this is not a floating point type, do not cast. E.g. it might be an integer
-    if (!dtype.is_float()) {
+    if (!expr_dtype.is_float()) {
       return expr;
     }
 
@@ -142,8 +133,12 @@ class RewriteBasedOnColors : public ExprMutator {
       return search->second;
     }
 
-    Expr result = dtype == wanted_dtype ? expr : Cast(expr, wanted_dtype);
+    Expr result = expr_dtype == wanted_dtype ? expr : Cast(expr, wanted_dtype);
     cached_cast_nodes[{expr_node, wanted_dtype}] = result;
+
+    // Reverse the cache result too, e.g. if we want to reverse the cast point to original node
+    const ExprNode* new_expr_node = result.as<ExprNode>();
+    cached_cast_nodes[{new_expr_node, expr_dtype}] = expr;
     return result;
   }
 
@@ -159,7 +154,7 @@ class RewriteBasedOnColors : public ExprMutator {
       }
       return Tuple(new_expr);
     } else {
-      LOG(FATAL) << "Unknown type " << t;
+      LOG(FATAL) << "Unsupported type " << t << " we don't know how to cast for arguments!";
       return expr;
     }
   }
@@ -194,6 +189,14 @@ class RewriteBasedOnColors : public ExprMutator {
         */
       } else if (const TupleGetItemNode* get_item = arg.as<TupleGetItemNode>()) {
         new_arg = cast_helper(arg, arg_type, arg_cast_datatype);
+      } else if (const TupleNode* tuple = arg.as<TupleNode>()) {
+        Array<Expr> new_elements;
+        for (int i = 0; i < (tuple->fields).size(); i++) {
+          Expr field = GetField(arg, i);
+          Type tuple_expr_element_dtype = (arg_type.as<TupleTypeNode>()->fields)[i];
+          new_elements.push_back(cast_helper(field, tuple_expr_element_dtype, arg_cast_datatype));
+        }
+        new_arg = Tuple(new_elements);
       } else {
         LOG(FATAL) << "Unknown argument type " << arg << " type: " << arg_type;
         // Default behavior: use the cast_helper
