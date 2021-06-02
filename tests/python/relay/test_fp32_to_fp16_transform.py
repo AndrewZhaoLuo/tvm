@@ -66,7 +66,6 @@ def test_squeezenet():
     np.random.seed(5628)
     mod, mod_params = squeezenet.get_workload(1, 5, image_shape=(1, 32, 32))
     mod_params["data"] = np.random.uniform(-10, 10, (1, 1, 32, 32)).astype("float32")
-
     verify_fp32_fp16_output_close(mod, mod_params)
 
 
@@ -82,7 +81,7 @@ def test_lstm():
     mod_params["data3"] = np.random.uniform(-10, 10, (1, 3)).astype("float32")
     mod_params["data4"] = np.random.uniform(-10, 10, (1, 3)).astype("float32")
 
-    verify_fp32_fp16_output_close(mod, mod_params)
+    verify_fp32_fp16_output_close(mod, mod_params, rtol=0.01, atol=0.01)
 
 
 def test_convert_single_conv():
@@ -183,7 +182,7 @@ def test_red_gray_propagates_simple():
 
     When adjacent
     """
-    np.random.seed(210)
+    np.random.seed(211)
     shape = [1, 2, 3]
     a = relay.var("a", shape=shape)
     b = relay.nn.softmax(a)
@@ -194,12 +193,13 @@ def test_red_gray_propagates_simple():
     mod_params = {
         "a": np.random.uniform(-1, 1, size=shape).astype("float32"),
     }
-    output_mod = verify_fp32_fp16_output_close(mod, mod_params, atol=0.0, rtol=0)
+    output_mod = verify_fp32_fp16_output_close(mod, mod_params, atol=0.0, rtol=0.0)
 
     assert tvm.ir.structural_equal(mod, output_mod)
 
 
 def test_let_statement_simple():
+    np.random.seed(211)
     var1 = relay.var("var1", shape=[1, 20])
     var2 = relay.var("var2", shape=[1, 20])
 
@@ -217,4 +217,26 @@ def test_let_statement_simple():
         "data": np.random.uniform(-1, 1, size=[1, 20]).astype("float32"),
         "weight": np.random.uniform(-1, 1, size=[20, 20]).astype("float32"),
     }
-    output_mod = verify_fp32_fp16_output_close(mod, mod_params, atol=0.0, rtol=0)
+    output_mod = verify_fp32_fp16_output_close(mod, mod_params, atol=0.01, rtol=0.01)
+
+    # Construct expected structure
+    var1 = relay.var("var1", shape=[1, 20], dtype="float16")
+    var2 = relay.var("var2", shape=[1, 20], dtype="float16")
+    data = relay.cast(relay.var("data", shape=[1, 20]), "float16")
+    weight = relay.cast(relay.var("weight", shape=[20, 20]), "float16")
+    r1 = var1 + var1
+    r2 = var2 + var2
+    let2 = relay.Let(
+        var2,
+        relay.cast(relay.nn.dense(r1, weight, units=20, out_dtype="float32"), "float16"),
+        r2,
+    )
+    let1 = relay.Let(
+        var1,
+        relay.cast(relay.nn.dense(data, weight, units=20, out_dtype="float32"), "float16"),
+        let2,
+    )
+    expected_mod = tvm.IRModule.from_expr(let1)
+    expected_mod = InferType()(expected_mod)
+
+    assert tvm.ir.structural_equal(expected_mod, output_mod)
