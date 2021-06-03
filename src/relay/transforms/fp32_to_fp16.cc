@@ -304,12 +304,13 @@ class RewriteBasedOnColors : public ExprMutator {
       color_map[output.as<CallNode>()] = color_map[call];
     }
 
-    LOG(WARNING) << "FOR OP: " << call->op;
-    LOG(WARNING) << "Old Types: " << call->type_args;
-    LOG(WARNING) << "New Types: " << new_types;
-    // LOG(WARNING) << "New: " << output->checked_type();
-    LOG(WARNING);
-
+    /*
+      LOG(WARNING) << "FOR OP: " << call->op;
+      LOG(WARNING) << "Old Types: " << call->type_args;
+      LOG(WARNING) << "New Types: " << new_types;
+      // LOG(WARNING) << "New: " << output->checked_type();
+      LOG(WARNING);
+    */
     // TODO: remember to visit everything! Def missing arg dtypes rn
     return output;
   };

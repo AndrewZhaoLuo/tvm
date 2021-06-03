@@ -69,12 +69,14 @@ class ModuleInternal {
   static std::vector<Module>* GetImportsAddr(ModuleNode* node) { return &(node->imports_); }
 };
 
-PackedFunc WrapPackedFunc(TVMBackendPackedCFunc faddr, const ObjectPtr<Object>& sptr_to_self) {
-  return PackedFunc([faddr, sptr_to_self](TVMArgs args, TVMRetValue* rv) {
+PackedFunc WrapPackedFunc(TVMBackendPackedCFunc faddr, const ObjectPtr<Object>& sptr_to_self, std::string name) {
+  return PackedFunc([faddr, sptr_to_self, name](TVMArgs args, TVMRetValue* rv) {
     TVMValue ret_value;
     int ret_type_code = kTVMNullptr;
+    LOG(WARNING) << "call " << name;
     int ret = (*faddr)(const_cast<TVMValue*>(args.values), const_cast<int*>(args.type_codes),
                        args.num_args, &ret_value, &ret_type_code, nullptr);
+    LOG(WARNING) << "ret " << name << " code: " << ret;
     // ICHECK_EQ(ret, 0) << TVMGetLastError();
     if (ret != 0) {
       // Use gdb to get bt of what function

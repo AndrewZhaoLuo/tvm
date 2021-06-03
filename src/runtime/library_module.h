@@ -70,7 +70,8 @@ class Library : public Object {
  * \param faddr The function address
  * \param mptr The module pointer node.
  */
-PackedFunc WrapPackedFunc(TVMBackendPackedCFunc faddr, const ObjectPtr<Object>& mptr);
+PackedFunc WrapPackedFunc(TVMBackendPackedCFunc faddr, const ObjectPtr<Object>& mptr,
+                          std::string name = "");
 
 /*!
  * \brief Utility to initialize conext function symbols during startup

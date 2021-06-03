@@ -92,7 +92,7 @@ class LLVMModuleNode final : public runtime::ModuleNode {
       faddr = reinterpret_cast<TVMBackendPackedCFunc>(GetFunctionAddr(name));
     }
     if (faddr == nullptr) return PackedFunc();
-    return WrapPackedFunc(faddr, sptr_to_self);
+    return WrapPackedFunc(faddr, sptr_to_self, name);
   }
 
   void SaveToFile(const std::string& file_name, const std::string& format) final {
