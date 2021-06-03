@@ -265,6 +265,22 @@ def test_where_simple():
     }
     output_mod = verify_fp32_fp16_output_close(mod, mod_params, atol=0.01, rtol=0.01)
 
+    # TODO: structural equality
+
+
+def test_batch_matmul_simple():
+    data = relay.var("data", shape=[1, 1, 20])
+    weight = relay.var("weight", shape=[1, 20, 20])
+    a = relay.nn.batch_matmul(data, weight)
+    mod = tvm.IRModule.from_expr(a)
+    mod_params = {
+        "data": np.random.uniform(-1, 1, size=[1, 1, 20]).astype("float32"),
+        "weight": np.random.uniform(-1, 1, size=[1, 20, 20]).astype("float32"),
+    }
+    output_mod = verify_fp32_fp16_output_close(mod, mod_params, atol=0.01, rtol=0.01)
+
+    # TODO: structural equality
+
 
 # Straight image classification models
 def test_onnx_resnet18():
