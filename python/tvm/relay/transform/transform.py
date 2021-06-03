@@ -1144,13 +1144,21 @@ def AnnotateSpans():
     Returns
     -------
     ret : tvm.transform.Pass
-        The regsistered AnnotateSpans pass.
+        The registered AnnotateSpans pass.
     """
     return _ffi_api.AnnotateSpans()
 
 
-def RewriteFP16(debug=False):
+def RewriteFP16():
     """
-    Cool stuff. TODO
+    Rewrite an FP32 relay graph into an FP16 version. Note this does mutate
+    the original graph putting it in a bad state potentially.
+
+    TODO: don't mutate the original graph.
+
+    Returns
+    -------
+    ret : tvm.transform.Pass
+        The registered RewriteFP16 pass.
     """
-    return _ffi_api.RewriteFP16(debug)
+    return _ffi_api.RewriteFP16()
