@@ -179,21 +179,26 @@ class RewriteBasedOnColors : public ExprMutator {
     }
   }
 
-  Array<Expr> get_new_args(const CallNode* call, DataType arg_cast_datatype) {
-    Array<Expr> ret;
+  std::pair<Array<Expr>, Array<Type>> get_new_args(const CallNode* call,
+                                                   DataType arg_cast_datatype) {
+    Array<Expr> args;
+    Array<Type> types;
     for (Expr arg : call->args) {
       arg = VisitExpr(arg);
       Type arg_type = GetTypedExpr(arg)->checked_type();
-      ret.push_back(arg_cast_helper(arg, arg_type, arg_cast_datatype));
+      Expr new_expr = arg_cast_helper(arg, arg_type, arg_cast_datatype);
+      args.push_back(new_expr);
+      types.push_back(GetTypedExpr(new_expr)->checked_type());
     }
 
-    return ret;
+    return {args, types};
   }
 
   Attrs get_new_attrs(const CallNode* call, DataType accumulation_dtype) {
     Attrs new_attrs = Attrs(call->attrs);
     if (new_attrs.get() != nullptr) {
       // TODO: Figure out a better way to do this
+      // out_dtype attributes (accumulation dtype)
       if (auto attrs = new_attrs.as<Conv1DAttrs>()) {
         modify_output_dtype(attrs, accumulation_dtype);
       } else if (auto attrs = new_attrs.as<Conv1DTransposeAttrs>()) {
@@ -220,6 +225,7 @@ class RewriteBasedOnColors : public ExprMutator {
         modify_output_dtype(attrs, accumulation_dtype);
       }
 
+      // dtype attributes (creating new tensors of type dtype)
       if (auto attrs = new_attrs.as<InitOpAttrs>()) {
         modify_dtype(attrs, accumulation_dtype);
       }
@@ -286,15 +292,23 @@ class RewriteBasedOnColors : public ExprMutator {
     // TODO: extend to bfloat types
     DataType arg_cast_dtype = color == GREEN ? DataType::Float(16) : DataType::Float(32);
 
-    Array<Expr> new_args = get_new_args(call, arg_cast_dtype);
+    auto new_args_and_types = get_new_args(call, arg_cast_dtype);
+    Array<Expr> new_args = new_args_and_types.first;
+    Array<Type> new_types = new_args_and_types.second;
     Attrs new_attrs = get_new_attrs(call, output_dtypes.accumulation_dtype);
-    Expr output = Call(new_op, new_args, new_attrs, call->type_args, call->span);
+    Expr output = Call(new_op, new_args, new_attrs, new_types, call->span);
 
     color_map[output.as<CallNode>()] = color_map[call];
     if (output_dtypes.accumulation_dtype != output_dtypes.output_dtype) {
       output = Cast(output, output_dtypes.output_dtype);
       color_map[output.as<CallNode>()] = color_map[call];
     }
+
+    LOG(WARNING) << "FOR OP: " << call->op;
+    LOG(WARNING) << "Old Types: " << call->type_args;
+    LOG(WARNING) << "New Types: " << new_types;
+    // LOG(WARNING) << "New: " << output->checked_type();
+    LOG(WARNING);
 
     // TODO: remember to visit everything! Def missing arg dtypes rn
     return output;
@@ -303,7 +317,9 @@ class RewriteBasedOnColors : public ExprMutator {
   Expr VisitExpr_(const FunctionNode* func) final {
     // Erase the ret_type annotation and let the pass recalculate
     const_cast<FunctionNode*>(func)->ret_type = Type(nullptr);
-    return ExprMutator::VisitExpr_(func);
+    Expr result = ExprMutator::VisitExpr_(func);
+    // const_cast<FunctionNode*>(func)->ret_type = GetTypedExpr(result)->checked_type();
+    return result;
   }
 };
 
@@ -352,12 +368,6 @@ Expr RewriteFp16Graph(const Expr& expr, bool debug) {
 
   // Insert an extraneous cast to FP32 to match old module output
   Expr result = rewriter.Mutate(expr);
-
-  // Old type annotations may no longer be accurate so rewrite
-  if (const FunctionNode* func = result.as<FunctionNode>()) {
-    const_cast<FunctionNode*>(func)->ret_type = Type(nullptr);
-  }
-
   return result;
 }
 
