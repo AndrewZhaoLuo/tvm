@@ -38,46 +38,6 @@ def verify_fp32_fp16_output_close(mod, mod_params, rtol=1e-3, atol=0):
     return fp16_mod
 
 
-def test_resnet18():
-    np.random.seed(4321)
-    mod, mod_params = resnet.get_workload(1, 5, num_layers=18, image_shape=(1, 32, 32))
-    mod_params["data"] = np.random.uniform(-10, 10, (1, 1, 32, 32)).astype("float32")
-
-    verify_fp32_fp16_output_close(mod, mod_params)
-
-
-def test_resnet18_3d():
-    np.random.seed(3215)
-    mod, mod_params = resnet_3d.get_workload(1, 5, num_layers=18, image_shape=(1, 3, 32, 32))
-    mod_params["data"] = np.random.uniform(-10, 10, (1, 1, 3, 32, 32)).astype("float32")
-
-    verify_fp32_fp16_output_close(mod, mod_params)
-
-
-def test_mobilenet():
-    np.random.seed(4615)
-
-    mod, mod_params = mobilenet.get_workload(1, 5, image_shape=(1, 32, 32))
-    mod_params["data"] = np.random.uniform(-10, 10, (1, 1, 32, 32)).astype("float32")
-
-    verify_fp32_fp16_output_close(mod, mod_params)
-
-
-def test_densenet():
-    np.random.seed(3222)
-    mod, mod_params = densenet.get_workload(classes=5, batch_size=1, image_shape=(1, 224, 224))
-    mod_params["data"] = np.random.uniform(-10, 10, (1, 1, 224, 224)).astype("float32")
-
-    verify_fp32_fp16_output_close(mod, mod_params)
-
-
-def test_squeezenet():
-    np.random.seed(5628)
-    mod, mod_params = squeezenet.get_workload(1, 5, image_shape=(1, 32, 32))
-    mod_params["data"] = np.random.uniform(-10, 10, (1, 1, 32, 32)).astype("float32")
-    verify_fp32_fp16_output_close(mod, mod_params)
-
-
 def test_lstm():
     np.random.seed(5628)
     mod, mod_params = lstm.get_workload(5, 3)
@@ -199,10 +159,7 @@ def test_do_not_convert_softmax():
 
 
 def test_green_gray_propagates_simple():
-    """Conv is a green listed operation, while addition is gray.
-
-    When adjacent
-    """
+    """Conv is a green listed operation, while addition is gray."""
     np.random.seed(210)
     data_shape = (1, 3, 32, 32)
     weight_shape = (5, 3, 3, 3)
@@ -345,6 +302,47 @@ def test_batch_matmul_simple():
     expected_mod = tvm.IRModule.from_expr(a)
     expected_mod = InferType()(expected_mod)
     assert tvm.ir.structural_equal(expected_mod, output_mod)
+
+
+# Native relay models
+def test_resnet18():
+    np.random.seed(4321)
+    mod, mod_params = resnet.get_workload(1, 5, num_layers=18, image_shape=(1, 32, 32))
+    mod_params["data"] = np.random.uniform(-10, 10, (1, 1, 32, 32)).astype("float32")
+
+    verify_fp32_fp16_output_close(mod, mod_params)
+
+
+def test_resnet18_3d():
+    np.random.seed(3215)
+    mod, mod_params = resnet_3d.get_workload(1, 5, num_layers=18, image_shape=(1, 3, 32, 32))
+    mod_params["data"] = np.random.uniform(-10, 10, (1, 1, 3, 32, 32)).astype("float32")
+
+    verify_fp32_fp16_output_close(mod, mod_params)
+
+
+def test_mobilenet():
+    np.random.seed(4615)
+
+    mod, mod_params = mobilenet.get_workload(1, 5, image_shape=(1, 32, 32))
+    mod_params["data"] = np.random.uniform(-10, 10, (1, 1, 32, 32)).astype("float32")
+
+    verify_fp32_fp16_output_close(mod, mod_params)
+
+
+def test_densenet():
+    np.random.seed(3222)
+    mod, mod_params = densenet.get_workload(classes=5, batch_size=1, image_shape=(1, 224, 224))
+    mod_params["data"] = np.random.uniform(-10, 10, (1, 1, 224, 224)).astype("float32")
+
+    verify_fp32_fp16_output_close(mod, mod_params)
+
+
+def test_squeezenet():
+    np.random.seed(5628)
+    mod, mod_params = squeezenet.get_workload(1, 5, image_shape=(1, 32, 32))
+    mod_params["data"] = np.random.uniform(-10, 10, (1, 1, 32, 32)).astype("float32")
+    verify_fp32_fp16_output_close(mod, mod_params)
 
 
 # Straight image classification models
