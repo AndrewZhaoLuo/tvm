@@ -11,23 +11,31 @@
 namespace tvm {
 namespace relay {
 
+// A callable which hashes std::pair
 struct pair_hash {
   template <class T1, class T2>
   std::size_t operator()(const std::pair<T1, T2>& pair) const {
     auto h1 = std::hash<T1>()(pair.first);
     auto h2 = std::hash<T2>()(pair.second);
 
-    return h1 ^ h2;
+    return h1 ^ (h2 << 1);
   }
 };
 
 // A map of call nodes to their fp16 conversion type
 using CallColorMap = std::unordered_map<const CallNode*, FP16ConversionCategory>;
+
+// A map of a parent node and a wanted dtype to existing nodes casted to the wanted dtype
 using CachedCastNodes = std::unordered_map<std::pair<const ExprNode*, DataType>, Expr, pair_hash>;
+
+// A function which maps CallNodes to their initial conversion color
 using ColorFunc = std::function<FP16ConversionCategory(const CallNode*)>;
+
+// A function which maps green CallNodes to wanted accumulation and output dtypes
 using OutputDtypeFunc = std::function<FP16OpDType(const CallNode*)>;
 
 class GraphColorer : public ExprVisitor {
+  /* The first pass which colors the initial callnodes. */
  private:
   CallColorMap color_map;
   ColorFunc func;
@@ -45,6 +53,7 @@ class GraphColorer : public ExprVisitor {
 };
 
 class PropagateColors : public ExprVisitor {
+  /* The second pass which ensures all nodes are either green or red */
  private:
   CallColorMap color_map;
   OutputDtypeFunc func;

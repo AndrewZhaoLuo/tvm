@@ -112,8 +112,7 @@ OpStringSet DEFAULT_GRAY_LIST({
     "nn.adaptive_avg_pool3d",
 });
 OpStringSet DEFAULT_RED_LIST({
-    // In general if |f(x)| >> |x| for some expected inputs to the op then put it here.
-    // Activations with exponents or dividing by small numbers
+    // In general if |f(x)| >> |x| for expected inputs then put the op here.
     "exp",
     "power",
     "nn.cross_entropy",
@@ -123,6 +122,10 @@ OpStringSet DEFAULT_RED_LIST({
 });
 
 class DefaultFP16Colorer {
+  /* The default class to initially color ops for conversion using lists.
+
+  Creates a callable which given a CallNode* returns the node's color.
+  */
  private:
   std::unordered_map<std::string, FP16ConversionCategory> op_to_initial_color;
 
@@ -149,44 +152,52 @@ class DefaultFP16Colorer {
 
       if (color == op_to_initial_color.end()) {
         if (ignore_missing) {
-          LOG(WARNING) << "Op name " + op_name + " not in included in fp16 conversion lists!.";
+          LOG(WARNING) << "Op name " << op_name << " not in included in fp16 conversion lists!.";
           return RED;
         } else {
-          LOG(FATAL) << "Op name " + op_name + " not in included in fp16 lists!.";
+          LOG(FATAL) << "Op name " << op_name << " not in included in fp16 lists!.";
         }
       }
 
       return color->second;
     } else if (auto* func_node = (call->op).as<FunctionNode>()) {
-      // Make RED to avoid messing with function types which are complicated, fold in other pass
+      // TODO: make RED to avoid messing with function signatures. For now keep this simple
       return RED;
     } else {
-      LOG(FATAL) << "FP16 conversion only supports call nodes with op calls got " << call->op;
+      LOG(FATAL) << "FP16 conversion only supports call nodes with OpNodes or Functions got "
+                 << call->op;
       return RED;
     }
   }
 };
 
 class DefaultFP16OpDefinition {
+  /* The default class which determines the accumulation and
+
+  Note this is actually kind of hard! Not every op fits neatly into the dichotomy of
+  returning a floating point type. In the future try using type relations to keep things better.
+  */
  public:
   FP16OpDType operator()(const CallNode* call) {
-    // TODO: remove when batch_matmul handles accumulation dtypes properly
-    // Batched matmul has inconsistent support for mixed precision operations
+    // TODO: remove when batch_matmul handles accumulation dtypes well.
+    // Batched matmul has inconsistent support for mixed precision operations.
     // Many schedules ignore the out_dtype attribute which leads to errors when
-    // input types do not match the out_dtype. Therefore, accumulate to fp16.
+    // input types do not match the out_dtype. Therefore, accumulate to fp16 if green.
     if (auto op_node = call->op.as<OpNode>()) {
       if (op_node->name == "nn.batch_matmul") {
         return {DataType::Float(16), DataType::Float(16)};
       }
     }
 
+    // We assume the "out_dtype" field is always an accumulation dtype specification.
     if (call->attrs != NullValue<Attrs>()) {
       Array<AttrFieldInfo> fields = call->attrs->ListFieldInfo();
       for (AttrFieldInfo field_info : fields) {
         if (field_info->name == "out_dtype") return {DataType::Float(32), DataType::Float(16)};
       }
     }
-    return {DataType::Float(16), DataType::Float(16)};
+
+    return {DataType(), DataType::Float(16)};
   }
 };
 
