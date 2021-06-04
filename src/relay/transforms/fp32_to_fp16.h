@@ -49,6 +49,7 @@ OpStringSet DEFAULT_GRAY_LIST({
     "reshape",
     "dyn.reshape",
     "broadcast_to_like",
+    "dyn.broadcast_to",
     "strided_slice",
     "dyn.strided_slice",
     "take",
@@ -119,6 +120,9 @@ OpStringSet DEFAULT_RED_LIST({
     "nn.cross_entropy_with_logits",
     "nn.softmax",
     "nn.l2_normalize",
+    // Error function doesn't seem to be able to be lowered into fp16 version in llvm.
+    // Move to gray list when it does.
+    "erf",
 });
 
 class DefaultFP16Colorer {
@@ -197,7 +201,7 @@ class DefaultFP16OpDefinition {
       }
     }
 
-    return {DataType(), DataType::Float(16)};
+    return {DataType::Float(16), DataType::Float(16)};
   }
 };
 

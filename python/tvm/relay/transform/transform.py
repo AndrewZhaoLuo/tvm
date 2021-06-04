@@ -1149,8 +1149,8 @@ def AnnotateSpans():
     return _ffi_api.AnnotateSpans()
 
 
-def RewriteFP16(debug=False):
+def RewriteFP16():
     """
     Cool stuff. TODO
     """
-    return _ffi_api.RewriteFP16(debug)
+    return _ffi_api.RewriteFP16()

@@ -132,6 +132,56 @@ def test_convert_single_conv():
     assert tvm.ir.structural_equal(fp16_mod, expected_mod)
 
 
+def test_convert_conv_bn():
+    """Conv is green and batch norm is gray so everything should be green at the end."""
+    np.random.seed(208)
+
+    data_shape = (1, 3, 32, 32)
+    weight_shape = (5, 3, 3, 3)
+    data = relay.var("data", shape=data_shape, dtype="float32")
+    weight = relay.var("weight", shape=weight_shape, dtype="float32")
+    conv = relay.nn.conv2d(data, weight, strides=(1, 1), padding=(1, 1), out_dtype="float32")
+
+    bn_shape = [5]
+    gamma = relay.var("gamma", shape=bn_shape)
+    beta = relay.var("beta", shape=bn_shape)
+    moving_mean = relay.var("moving_mean", shape=bn_shape)
+    moving_var = relay.var("moving_var", shape=bn_shape)
+    bn = relay.nn.batch_norm(conv, gamma, beta, moving_mean, moving_var)
+    mod = tvm.IRModule.from_expr(bn[0])
+    mod = tvm.relay.transform.InferType()(mod)
+
+    mod_params = {
+        "data": np.random.uniform(-1, 1, size=data_shape).astype("float32"),
+        "weight": np.random.uniform(-1, 1, size=weight_shape).astype("float32"),
+        "gamma": np.random.uniform(-1, 1, size=bn_shape).astype("float32"),
+        "beta": np.random.uniform(-1, 1, size=bn_shape).astype("float32"),
+        "moving_mean": np.random.uniform(-1, 1, size=bn_shape).astype("float32"),
+        "moving_var": np.random.uniform(-1, 1, size=bn_shape).astype("float32"),
+    }
+    fp16_mod = verify_fp32_fp16_output_close(mod, mod_params, atol=0.01, rtol=1e-3)
+
+    # Creating expected module
+    data = relay.cast(relay.var("data", shape=data_shape), "float16")
+    weight = relay.cast(relay.var("weight", shape=weight_shape), "float16")
+    conv = relay.cast(
+        relay.nn.conv2d(data, weight, strides=(1, 1), padding=(1, 1), out_dtype="float32"),
+        "float16",
+    )
+
+    bn_shape = [5]
+    gamma = relay.cast(relay.var("gamma", shape=bn_shape), "float16")
+    beta = relay.cast(relay.var("beta", shape=bn_shape), "float16")
+    moving_mean = relay.cast(relay.var("moving_mean", shape=bn_shape), "float16")
+    moving_var = relay.cast(relay.var("moving_var", shape=bn_shape), "float16")
+    bn = relay.nn.batch_norm(conv, gamma, beta, moving_mean, moving_var)
+
+    expected_mod = tvm.IRModule.from_expr(bn[0])
+    expected_mod = tvm.relay.transform.InferType()(expected_mod)
+    assert not tvm.ir.structural_equal(fp16_mod, mod)
+    assert tvm.ir.structural_equal(fp16_mod, expected_mod)
+
+
 def test_do_not_convert_softmax():
     """Softmax is a red listed operation and therefore should never be fp16."""
     np.random.seed(209)
