@@ -45,7 +45,34 @@ struct FP16OpDType {
 // GREEN colored ops should always be done in FP16 due to the speed and memory savings
 // GRAY colored ops can be done in FP16 but don't have speedups to justify a dedicated cast.
 // RED colored ops should not be done in FP16 due to numerical reasons.
-enum FP16ConversionCategory { RED, GRAY, GREEN };
+enum FP16ConversionCategory : int { RED, GRAY, GREEN };
+
+class ConversionCategoryNode : public Object {
+ public:
+  FP16ConversionCategory category = RED;
+
+  void VisitAttrs(AttrVisitor* v) { v->Visit("category", &category); }
+};
+
+class TestClassNode : public Object {
+  PackedFunc f;
+  void call() { f(); }
+};
+
+class TestClass : public ObjectRef {
+ public:
+  TVM_DLL TestClass(PackedFunc f) {}
+  TVM_DEFINE_OBJECT_REF_METHODS(TestClass, ObjectRef, TestClassNode);
+};
+
+TVM_REGISTER_GLOBAL("relay.ir.TestClass").set_body()
+    .set_body_typed([](TVMArgs args, TVMRetValue* rv) -> TestClass {
+      PackedFunc f = args[0];
+      // LOG(WARNING) << args;
+      // *rv = TestClass(f);
+      TestClass t = TestClass(f);
+      return t;
+    });
 
 using OpStringSet = std::unordered_set<std::string>;
 

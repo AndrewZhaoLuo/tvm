@@ -326,3 +326,24 @@ def test_batch_matmul_simple():
     expected_mod = tvm.IRModule.from_expr(a)
     expected_mod = InferType()(expected_mod)
     assert tvm.ir.structural_equal(expected_mod, output_mod)
+
+
+if __name__ == "__main__":
+    import tvm
+    from tvm.relay import _ffi_api
+    from tvm.runtime import Object, convert
+
+    class TestClass(Object):
+        def __init__(self, func) -> None:
+            self.__init_handle_by_constructor__(_ffi_api.TestClass, func)
+
+    # r = TestClass(convert(lambda: "hi!"))
+    def hi():
+        print("hi")
+
+    packed_func = convert(hi)
+    a = _ffi_api.TestClass(packed_func)
+    print(_ffi_api.TestClass)
+    # print(_ffi_api.TestClass())
+    # print(a)
+    # r = TestClass(packed_func)
