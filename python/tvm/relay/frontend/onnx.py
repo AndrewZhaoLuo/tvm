@@ -1358,8 +1358,7 @@ class Split(OnnxOpConverter):
     """Operator converter for Split."""
 
     @classmethod
-    def _impl_v1(cls, inputs, attr, params):
-        splits = attr.get("split", None)
+    def run_calculation(cls, input_tensor, splits, axis, attr):
         if splits is not None:
             indices = []
             attr["indices_or_sections"] = []
@@ -1370,11 +1369,26 @@ class Split(OnnxOpConverter):
         # When splits isnt specified divide evenly over axis.
         else:
             indices = attr["tvm_custom"]["num_outputs"]
-        output = _op.split(inputs[0], indices, attr.get("axis", 0))
+        output = _op.split(input_tensor, indices, axis)
+
         # If the output of split is a single value, unpack if from the TupleWrapper
         if len(output) == 1:
             output = output[0]
         return output
+
+    @classmethod
+    def _impl_v1(cls, inputs, attr, params):
+        input_tensor = inputs[0]
+        splits = attr.get("split", None)
+        axis = attr.get("axis", 0)
+        return cls.run_calculation(input_tensor, splits, axis, attr)
+
+    @classmethod
+    def _impl_v13(cls, inputs, attr, params):
+        axis = attr.get("axis", 0)
+        input_tensor = inputs[0]
+        splits = inputs[1] if len(inputs) == 2 else None
+        return cls.run_calculation(input_tensor, splits, axis, attr)
 
 
 class Slice(OnnxOpConverter):
