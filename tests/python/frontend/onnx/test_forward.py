@@ -4711,21 +4711,26 @@ onnx_test_folders = sorted(
 )
 
 unsupported_onnx_tests = [
+    # Probably easy
     "test_adagrad",
     "test_adagrad_multiple",
     "test_adam",
     "test_adam_multiple",
+    # Hard to do, bfloat16 integration
     "test_cast_BFLOAT16_to_FLOAT",
     "test_cast_DOUBLE_to_FLOAT16",
     "test_cast_FLOAT_to_BFLOAT16",
     "test_cast_FLOAT_to_STRING",
     "test_cast_STRING_to_FLOAT",
+    # Probably need to make topi function
     "test_compress_0",
     "test_compress_1",
     "test_compress_default_axis",
     "test_compress_negative_axis",
+    # Dunno
     "test_convtranspose_dilations",
     "test_convtranspose_output_shape",
+    # Need dynamic reductions
     "test_cumsum_1d",
     "test_cumsum_1d_exclusive",
     "test_cumsum_1d_reverse",
@@ -4733,22 +4738,27 @@ unsupported_onnx_tests = [
     "test_cumsum_2d_axis_0",
     "test_cumsum_2d_axis_1",
     "test_cumsum_2d_negative_axis",
+    # Need to make determinent func
     "test_det_2d",
     "test_det_nd",
+    # Maybe easy
     "test_dropout_default",
     "test_dropout_default_mask",
     "test_dropout_default_mask_ratio",
     "test_dropout_default_ratio",
+    # Need to handle parsing a string
     "test_einsum_batch_diagonal",
     "test_einsum_batch_matmul",
     "test_einsum_inner_prod",
     "test_einsum_sum",
     "test_einsum_transpose",
+    # Probably doable
     "test_greater_equal",
     "test_greater_equal_bcast",
     "test_if_seq",
     "test_less_equal",
     "test_less_equal_bcast",
+    # Need expanded reductions
     "test_logsoftmax_axis_0_expanded",
     "test_logsoftmax_axis_1_expanded",
     "test_logsoftmax_axis_2_expanded",
@@ -4756,6 +4766,7 @@ unsupported_onnx_tests = [
     "test_logsoftmax_example_1_expanded",
     "test_logsoftmax_large_number_expanded",
     "test_logsoftmax_negative_axis_expanded",
+    # Dunno about the below
     "test_loop11",
     "test_loop13_seq",
     "test_matmulinteger",
@@ -4764,6 +4775,7 @@ unsupported_onnx_tests = [
     "test_maxpool_with_argmax_2d_precomputed_pads",
     "test_maxpool_with_argmax_2d_precomputed_strides",
     "test_maxunpool_export_with_output_shape",
+    # Probably possible
     "test_momentum",
     "test_momentum_multiple",
     "test_mvn",
