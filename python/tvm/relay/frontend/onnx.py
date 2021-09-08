@@ -3588,12 +3588,17 @@ class NegativeLogLikelihoodLoss(OnnxOpConverter):
 class Dropout(OnnxOpConverter):
     @classmethod
     def _impl_v13(cls, inputs, attr, params):
-        if "seed" in attr:
-            raise ValueError("Repeatable seed is not supported yet!")
+        #if "seed" in attr:
+        #    raise ValueError("Repeatable seed is not supported yet!")
 
         input_tensor = inputs[0]
         ratio = inputs[1]
+        if ratio is None:
+            ratio=0.5
         training_mode = inputs[2]
+        if training_mode is None:
+            training_mode=False
+
         if training_mode:
             return input_tensor
         return relay.nn.dropout(input_tensor, rate=ratio)
@@ -4085,6 +4090,7 @@ class GraphProto:
         if op_name in _identity_list:
             sym = get_relay_op(op_name)(*inputs, **attrs)
         elif op_name in convert_map:
+            breakpoint()
             sym = convert_map[op_name](inputs, attrs, self._params)
         else:
             raise NotImplementedError("Operator {} not implemented.".format(op_name))
