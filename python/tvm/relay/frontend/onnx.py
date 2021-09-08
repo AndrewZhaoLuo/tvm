@@ -36,21 +36,9 @@ from .. import qnn as _qnn
 from .. import random as _random
 from .. import ty as _ty
 from .. import vision as _vision
-from .common import (
-    AttrCvt,
-    Renamer,
-    fold_constant,
-    get_name,
-    get_relay_op,
-    gru_cell,
-    infer_channels,
-    infer_shape,
-    infer_type,
-    infer_value,
-    lstm_cell,
-    new_var,
-    unbind,
-)
+from .common import (AttrCvt, Renamer, fold_constant, get_name, get_relay_op,
+                     gru_cell, infer_channels, infer_shape, infer_type,
+                     infer_value, lstm_cell, new_var, unbind)
 
 __all__ = ["from_onnx"]
 
@@ -3597,6 +3585,20 @@ class NegativeLogLikelihoodLoss(OnnxOpConverter):
         return loss
 
 
+class Dropout(OnnxOpConverter):
+    @classmethod
+    def _impl_v13(cls, inputs, attr, params):
+        if "seed" in attr:
+            raise ValueError("Repeatable seed is not supported yet!")
+
+        input_tensor = inputs[0]
+        ratio = inputs[1]
+        training_mode = inputs[2]
+        if training_mode:
+            return input_tensor
+        return relay.nn.dropout(input_tensor, rate=ratio)
+
+
 # compatible operators that do NOT require any conversion.
 _identity_list = []
 
@@ -3703,7 +3705,7 @@ def _get_convert_map(opset):
         "BatchNormalization": BatchNorm.get_converter(opset),
         "InstanceNormalization": InstanceNorm.get_converter(opset),
         # 'LpNormalization'
-        "Dropout": AttrCvt("dropout", {"ratio": "rate"}, ignores=["is_test"]),
+        "Dropout": Dropout.get_converter(opset),
         "Flatten": Flatten.get_converter(opset),
         "LRN": LRN.get_converter(opset),
         # Recurrent Layers
