@@ -16,32 +16,28 @@
 # under the License.
 # pylint: disable=too-many-arguments,too-many-locals,too-many-statements,too-many-instance-attributes,too-many-branches,too-many-nested-blocks,invalid-name,unused-argument,unused-variable,no-member,no-value-for-parameter
 """Base class for graph tuner."""
+import enum
 import logging
 from abc import abstractmethod
+from typing import Union
 
 import numpy as np
-from tvm import topi
-
 import tvm
-from tvm import te
-from tvm import autotvm, relay
+from tvm import auto_scheduler, autotvm, relay, te, topi
+from tvm.autotvm.measure import MeasureInput, MeasureResult
 from tvm.autotvm.task import get_config
-from tvm.autotvm.record import encode, load_from_file
-from tvm.autotvm.measure import MeasureResult, MeasureInput
 from tvm.target import Target
 
 from ...target import Target
+from ._base import INVALID_LAYOUT_TIME, OPT_OUT_OP
 from .utils import (
-    is_boundary_node,
+    bind_inputs,
+    expr2graph,
     get_in_nodes,
     get_out_nodes,
     has_multiple_inputs,
-    bind_inputs,
-    expr2graph,
+    is_boundary_node,
 )
-from ._base import INVALID_LAYOUT_TIME
-
-from ._base import OPT_OUT_OP
 
 
 def get_infer_layout(task_name):
@@ -61,6 +57,23 @@ def layout_transform(*args):
     out = topi.layout_transform(*args)
     sch = topi.generic.schedule_injective([out])
     return sch, [data, out]
+
+
+class RecordType(enum.Enum):
+    AUTOSCHEDULER = "autoscheduler"
+    AUTOTVM = "autotvm"
+
+
+def get_workload_key(
+    measure_input: Union[autotvm.MeasureInput, auto_scheduler.MeasureInput]
+) -> str:
+    """TODO"""
+    if isinstance(measure_input, autotvm.MeasureInput):
+        return measure_input.task.workload
+    elif isinstance(measure_input, auto_scheduler.MeasureInput):
+        return measure_input.task.workload_key
+    else:
+        raise ValueError(f"Unknown measure input type: {type(measure_input)}")
 
 
 class BaseGraphTuner(object):
@@ -84,6 +97,7 @@ class BaseGraphTuner(object):
         log_file="graph_tuner.log",
         log_level=logging.DEBUG,
         name="graph_tuner",
+        record_type=RecordType.AUTOTVM,
     ):
         """Create a GlobalTuner instance. Local schedule searching for all nodes with
         target_op in the input graph and layout transformation benchmark need to be
@@ -124,6 +138,7 @@ class BaseGraphTuner(object):
         self._layout_transform_interlayer_cost = {}
         self._input_shapes = input_shapes
         self._target_ops = target_ops
+        self._record_type = record_type
 
         self._name = name
         self._max_sch_num = max_sch_num
@@ -218,13 +233,17 @@ class BaseGraphTuner(object):
     def _fetch_cfg(self):
         """Read and pre-process input schedules."""
         if isinstance(self._records, str):
-            records = load_from_file(self._records)
+            if self._record_type == RecordType.AUTOTVM:
+                records = autotvm.record.load_from_file(self._records)
+            elif self._record_type == RecordType.AUTOSCHEDULER:
+                records = auto_scheduler.load_records(self._records)
         else:
             records = self._records
         cfg_dict = {}
+
         for record in records:
             in_measure, _ = record
-            workload = in_measure.task.workload
+            workload = get_workload_key(in_measure)
             if workload not in cfg_dict:
                 cfg_dict[workload] = []
             cfg_dict[workload].append(record)
@@ -241,6 +260,7 @@ class BaseGraphTuner(object):
             record_candidates = []
             infer_layout_func = get_infer_layout(node_entry["topi_op"][0])
             layout_tracking_dict = {}
+            breakpoint()
             for record in cfg_dict[workload]:
                 in_measure, out_measure = record
                 workload = in_measure.task.workload

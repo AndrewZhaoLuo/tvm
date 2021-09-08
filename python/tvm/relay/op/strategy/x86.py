@@ -17,14 +17,15 @@
 """Definition of x86 operator strategy."""
 # pylint: disable=invalid-name,unused-argument,wildcard-import,unused-wildcard-import
 import logging
-
 import re
+
 from tvm import topi
 from tvm.auto_scheduler import is_auto_scheduler_enabled
-from tvm.te import SpecializedCondition
 from tvm.relay.ty import is_dynamic
-from .generic import *
+from tvm.te import SpecializedCondition
+
 from .. import op as _op
+from .generic import *
 
 logger = logging.getLogger("strategy")
 

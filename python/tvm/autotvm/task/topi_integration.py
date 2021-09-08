@@ -33,11 +33,11 @@ from tvm.target import Target
 from tvm.te import tensor
 
 from .task import (
-    args_to_workload,
-    serialize_args,
     DispatchContext,
     _register_task_compute,
     _register_task_schedule,
+    args_to_workload,
+    serialize_args,
 )
 
 
@@ -86,6 +86,7 @@ class TaskExtractEnv:
         args: tuple
             Arguments to the TOPI function.
         """
+        breakpoint()
         key = (task_name, serialize_args(args))
         if self.allow_duplicate or key not in self.task_collection:
             self.task_collection.append(key)

@@ -19,15 +19,15 @@
 import threading
 
 import tvm
-from tvm import relay, autotvm
-from tvm.relay import transform
-from tvm.relay.expr import Call, TupleGetItem, Var, Constant, Tuple
-from tvm.relay.function import Function
-from tvm.relay.ty import TupleType, TensorType
+from tvm import auto_scheduler, autotvm, relay
 from tvm.autotvm.task import TaskExtractEnv
+from tvm.relay import transform
+from tvm.relay.expr import Call, Constant, Tuple, TupleGetItem, Var
+from tvm.relay.function import Function
+from tvm.relay.ty import TensorType, TupleType
 
-from .utils import has_multiple_inputs, is_boundary_node, is_skipped_node
 from .._base import OPT_OUT_OP
+from .utils import has_multiple_inputs, is_boundary_node, is_skipped_node
 
 
 def expr2graph(expr, target_ops, node_dict, node_list):
@@ -58,6 +58,7 @@ def expr2graph(expr, target_ops, node_dict, node_list):
     env.reset(target_ops)
     # pylint: disable=not-context-manager
     with env:
+        breakpoint()
         _expr2graph_impl(expr, target_ops, node_dict, node_list)
         task_pos = 0
         for node_entry in node_list:
@@ -128,11 +129,15 @@ def _expr2graph_impl(expr, target_ops, node_dict, node_list):
                 call = relay.Call(node.op, params, node.attrs)
                 mod = tvm.IRModule.from_expr(relay.Function(params, call))
                 relay.backend.compile_engine.get().clear()
-                build_thread = threading.Thread(
-                    target=relay.build, args=(mod, "llvm -device=tracing", None, None)
-                )
-                build_thread.start()
-                build_thread.join()
+
+                with tvm.transform.PassContext(
+                    opt_level=3, config={"relay.backend.use_auto_scheduler": True}
+                ):
+                    build_thread = threading.Thread(
+                        target=relay.build, args=(mod, "llvm -device=tracing", None, None)
+                    )
+                    build_thread.start()
+                    build_thread.join()
         elif isinstance(node, Var):
             node_entry["name"] = node.name_hint
             node_entry["types"] = [node.type_annotation]
