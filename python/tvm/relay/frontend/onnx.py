@@ -37,21 +37,9 @@ from .. import qnn as _qnn
 from .. import random as _random
 from .. import ty as _ty
 from .. import vision as _vision
-from .common import (
-    AttrCvt,
-    Renamer,
-    fold_constant,
-    get_name,
-    get_relay_op,
-    gru_cell,
-    infer_channels,
-    infer_shape,
-    infer_type,
-    infer_value,
-    lstm_cell,
-    new_var,
-    unbind,
-)
+from .common import (AttrCvt, Renamer, fold_constant, get_name, get_relay_op,
+                     gru_cell, infer_channels, infer_shape, infer_type,
+                     infer_value, lstm_cell, new_var, unbind)
 
 __all__ = ["from_onnx"]
 
@@ -3926,6 +3914,11 @@ class Momentum(OnnxOpConverter):
         result = output_tensors + output_momentums
         return _expr.TupleWrapper(_expr.Tuple(result), len(result))
 
+class Range(OnnxOpConverter):
+    @classmethod
+    def _impl_v11(cls, inputs, attr, params):
+        start, end, step = inputs 
+        return _op.arange(start, stop=end, step=step)
 
 # compatible operators that do NOT require any conversion.
 _identity_list = []
