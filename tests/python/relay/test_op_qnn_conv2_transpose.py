@@ -46,6 +46,7 @@ def get_ref_func(
     casted_kernel = relay.op.cast(kernel, "int32")
     shifted_data = relay.op.subtract(casted_data, relay.const(input_zero_point, "int32"))
     shifted_kernel = relay.op.subtract(casted_kernel, relay.const(kernel_zero_point, "int32"))
+    breakpoint()
     func = relay.op.nn.conv2d_transpose(
         shifted_data,
         shifted_kernel,
@@ -199,6 +200,7 @@ def verify(ref_func, qnn_func, data_shape, data_dtype, kernel_shape, kernel_dtyp
             return res
 
     golden_inputs = get_inputs(data_shape, data_dtype, kernel_shape, kernel_dtype)
+    breakpoint()
     golden_output = get_output(ref_func, golden_inputs)
     qnn_output = get_output(qnn_func, golden_inputs)
     np.testing.assert_equal(qnn_output, golden_output)
@@ -208,7 +210,7 @@ def test_no_zero_point():
     # uint8 input
     data_shape = (2, 1, 2, 4)
     data_dtype = "uint8"
-    kernel_shape = (1, 3, 2, 2)
+    kernel_shape = (3, 1, 2, 2)
     kernel_dtype = "uint8"
     ref_func, qnn_func = get_funcs(
         data_shape=data_shape,
@@ -232,7 +234,7 @@ def test_no_zero_point():
     # int8 input
     data_shape = (2, 1, 2, 4)
     data_dtype = "int8"
-    kernel_shape = (1, 3, 2, 2)
+    kernel_shape = (3, 1, 2, 2)
     kernel_dtype = "int8"
     ref_func, qnn_func = get_funcs(
         data_shape=data_shape,
@@ -509,7 +511,7 @@ def test_padding():
     # uint8 input
     data_shape = (1, 4, 2, 2)
     data_dtype = "uint8"
-    kernel_shape = (4, 3, 2, 2)
+    kernel_shape = (3, 4, 2, 2)
     kernel_dtype = "uint8"
     ref_func, qnn_func = get_funcs(
         data_shape=data_shape,
@@ -533,7 +535,7 @@ def test_padding():
     # Try different layout
     data_shape = (2, 2, 4, 4)  # NHWC
     data_dtype = "uint8"
-    kernel_shape = (2, 2, 3, 4)  # HWIO
+    kernel_shape = (2, 2, 4, 3)  # HWIO
     kernel_dtype = "uint8"
     ref_func, qnn_func = get_funcs(
         data_shape=data_shape,
@@ -557,7 +559,7 @@ def test_padding():
     # Try asymmetric padding
     data_shape = (2, 8, 6, 4)  # NHWC
     data_dtype = "uint8"
-    kernel_shape = (2, 2, 3, 4)  # HWIO
+    kernel_shape = (2, 2, 4, 3)  # HWIO
     kernel_dtype = "uint8"
     ref_func, qnn_func = get_funcs(
         data_shape=data_shape,
@@ -582,7 +584,7 @@ def test_padding():
 def test_const_folding():
     data_shape = (2, 4, 2, 4)
     data_dtype = "uint8"
-    kernel_shape = (4, 3, 2, 2)
+    kernel_shape = (3, 4, 2, 2)
     kernel_dtype = "uint8"
 
     golden_weight = np.random.randint(low=0, high=255, size=kernel_shape).astype(kernel_dtype)
@@ -602,7 +604,7 @@ def test_const_folding():
         data_layout="NCHW",
         kernel_layout="OIHW",
         out_dtype="int32",
-        channels=kernel_shape[1],
+        channels=kernel_shape[0],
         groups=1,
     )
     folded_mod = transform.FoldConstant()(qnn_func)
@@ -614,7 +616,7 @@ def test_broadcast_layout():
     # Test broadcast support for NHWC layout.
     data_shape = (1, 229, 229, 3)  # NHWC
     data_dtype = "uint8"
-    kernel_shape = (7, 7, 64, 3)  # HWIO
+    kernel_shape = (7, 7, 3, 64)  # HWIO
     kernel_dtype = "int8"
     _, qnn_func = get_funcs(
         data_shape=data_shape,
@@ -651,7 +653,7 @@ def test_broadcast_layout():
 def test_per_channel_kernel_scale():
     data_shape = (2, 1, 2, 4)
     data_dtype = "uint8"
-    kernel_shape = (1, 3, 2, 2)
+    kernel_shape = (3, 1, 2, 2)
     kernel_dtype = "uint8"
     data = relay.var("data", shape=data_shape, dtype=data_dtype)
     kernel = relay.var("kernel", shape=kernel_shape, dtype=kernel_dtype)

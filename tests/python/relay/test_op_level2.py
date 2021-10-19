@@ -825,7 +825,7 @@ def test_conv2d_transpose_infer_type():
     assert "channels=15" in y.astext()
     yy = run_infer_type(y)
     assert yy.checked_type == relay.TensorType((n, 15, 10, 12), "float32")
-    assert yy.args[1].checked_type == relay.TensorType((10, 15, 3, 3), "float32")
+    assert yy.args[1].checked_type == relay.TensorType((15, 10, 3, 3), "float32")
 
     # infer by shape of w, mixed precision
     n, h, w, c = te.size_var("n"), 10, 10, 12
@@ -844,9 +844,17 @@ def test_conv2d_transpose_nchw_run():
     kshape = (3, 10, 3, 3)
     oshape = (1, 10, 36, 36)
     x = relay.var("x", shape=dshape)
-    w = relay.var("w")
+    w = relay.var("w", shape=kshape)
     y = relay.nn.conv2d_transpose(
-        x, w, channels=10, kernel_size=(3, 3), strides=(2, 2), padding=(1, 1), output_padding=(1, 1)
+        x,
+        w,
+        channels=10,
+        kernel_size=(3, 3),
+        strides=(2, 2),
+        padding=(1, 1),
+        output_padding=(1, 1),
+        data_layout="NCHW",
+        kernel_layout="IOHW",
     )
     func = relay.Function([x, w], y)
     dtype = "float32"
@@ -879,9 +887,15 @@ def test_conv2d_transpose_nhwc_run():
         padding=(1, 1),
         output_padding=(1, 1),
         data_layout="NHWC",
-        kernel_layout="HWIO",
+        kernel_layout="HWOI",
     )
     func = relay.Function([x, w], y)
+
+    from tvm import IRModule
+
+    mod = IRModule.from_expr(y)
+    mod = relay.transform.InferType()(mod)
+    mod = relay.transform.Legalize()(mod)
     dtype = "float32"
     data = np.random.uniform(size=dshape_nhwc).astype(dtype)
     kernel = np.random.uniform(size=kshape_hwoi).astype(dtype)
@@ -892,7 +906,7 @@ def test_conv2d_transpose_nhwc_run():
     )
 
     for target, dev in tvm.testing.enabled_targets():
-        op_res1 = relay.create_executor("graph", device=dev, target=target).evaluate(func)(
+        op_res1 = relay.create_executor("graph", device=dev, target=target).evaluate(mod["main"])(
             data, kernel
         )
         tvm.testing.assert_allclose(op_res1.numpy(), ref_res, rtol=1e-5, atol=1e-5)
