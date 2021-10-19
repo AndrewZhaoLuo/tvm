@@ -831,7 +831,9 @@ def test_conv2d_transpose_infer_type():
     n, h, w, c = te.size_var("n"), 10, 10, 12
     x = relay.var("x", relay.TensorType((n, h, w, c), "float32"))
     w = relay.var("w", relay.TensorType((12, 11, 5, 5), "float32"))
-    y = relay.nn.conv2d_transpose(x, w, output_padding=(1, 1), channels=11, data_layout="NHWC")
+    y = relay.nn.conv2d_transpose(
+        x, w, output_padding=(1, 1), channels=11, data_layout="NHWC", kernel_layout="IOHW"
+    )
     yy = run_infer_type(y)
     assert yy.checked_type == relay.TensorType((n, 15, 15, 11), "float32")
 
@@ -1585,145 +1587,6 @@ def test_upsampling3d():
     _test_upsampling3d("NCDHW", "trilinear", "align_corners")
     _test_upsampling3d("NDHWC", "nearest_neighbor", "asymmetric")
     _test_upsampling3d("NDHWC", "trilinear", "align_corners")
-
-
-@pytest.mark.skipif(tvm.target.codegen.llvm_version_major() < 8, reason="Requires LLVM 8")
-class TestConv2DInt8Intrinsics:
-    supported_targets = [
-        "llvm -mcpu=nehalem",
-        "llvm -mcpu=core-avx2",
-        "llvm -mcpu=skylake-avx512",
-        "llvm -mcpu=cascadelake",
-    ]
-
-    unsupported_targets = [
-        "llvm -mcpu=x86-64",
-    ]
-
-    data_layout, kernel_layout = tvm.testing.parameters(
-        ("NCHW", "OIHW"),
-        # TODO(@anijain2305, @icemelon9): disable conv2d_int8 for NHWC data layout.
-        #   Re-enable this after adding conv2d_NCHWc_int8 support for NHWC.
-        # ("NHWC", "HWIO"),
-    )
-
-    input_channels, output_channels = tvm.testing.parameters(
-        # Sweep the input channels to check int8 robustness
-        # Input channels should be a multiple of 4 internally.
-        (1, 16),
-        (4, 16),
-        (6, 16),
-        # Sweep the output channels to check int8 robustness
-        # Output channels should be a multiple of 16 internally.
-        (8, 4),
-        (8, 16),
-        (8, 20),
-        # Check that both non-divisible oc and ic work
-        (17, 29),
-    )
-
-    @tvm.testing.fixture
-    def fast_int8_intrinsic(self, target):
-        if "nehalem" in target or "core-avx2" in target or "skylake-avx512" in target:
-            return "pmaddubs"
-        elif "cascadelake" in target:
-            return "vpdpbusd"
-        else:
-            assert False, "Target should be Skylake or Cascadelake"
-
-    @tvm.testing.fixture
-    def assembly(
-        self,
-        target,
-        dtypes,
-        input_channels,
-        output_channels,
-        data_layout,
-        kernel_layout,
-    ):
-        input_dtype, weight_dtype, output_dtype = dtypes
-
-        image_size = (64, 64)
-        kernel_size = (3, 3)
-        batch_size = 1
-
-        h, w = image_size
-
-        if data_layout == "NCHW":
-            data_shape = (batch_size, input_channels, *image_size)
-        elif data_layout == "NHWC":
-            data_shape = (batch_size, *image_size, input_channels)
-        else:
-            raise ValueError(f"Unsupported data layout: {data_layout}")
-        x = relay.var("x", relay.TensorType(data_shape, input_dtype))
-
-        if kernel_layout == "OIHW":
-            kernel_shape = (output_channels, input_channels, *kernel_size)
-        elif kernel_layout == "HWIO":
-            kernel_shape = (*kernel_size, input_channels, output_channels)
-        else:
-            raise ValueError("Not supported")
-        weight = relay.var("weight", relay.TensorType(kernel_shape, weight_dtype))
-
-        y = relay.nn.conv2d(
-            x,
-            weight,
-            kernel_size=kernel_size,
-            channels=output_channels,
-            padding=(0, 0, 0, 1),
-            dilation=(1, 1),
-            data_layout=data_layout,
-            kernel_layout=kernel_layout,
-            out_dtype=output_dtype,
-        )
-
-        func = relay.Function([x, weight], y)
-
-        wdata = np.random.rand(*kernel_shape) * 10
-        parameters = {"weight": tvm.nd.array(wdata.astype(weight_dtype))}
-
-        with tvm.transform.PassContext(opt_level=3):
-            graph, lib, params = relay.build(func, target, params=parameters)
-
-        return lib.get_source("asm")
-
-    # Ensure that code uses the fast int8 instructions when available.
-    @tvm.testing.parametrize_targets(*supported_targets)
-    @pytest.mark.parametrize(
-        "dtypes",
-        [
-            # compile conv2d for x86 (skylake, cascadelake) and test
-            # assembly contains *pmadd* instructions
-            ("uint8", "int8", "int32"),
-            # Check that int8 x int8 goes through legalization so that
-            # fast instructions can be picked up.
-            ("int8", "int8", "int32"),
-        ],
-    )
-    def test_uses_intrinsic(
-        self,
-        fast_int8_intrinsic,
-        assembly,
-    ):
-        assert fast_int8_intrinsic in assembly
-
-    # For datatypes that don't have HW support, ensure that code is
-    # generated without the fast int8 intrinsic.
-    @tvm.testing.parametrize_targets(*supported_targets)
-    @pytest.mark.parametrize("dtypes", [("uint8", "uint8", "int32")])
-    def test_no_intrinsic(
-        self,
-        fast_int8_intrinsic,
-        assembly,
-    ):
-        assert fast_int8_intrinsic not in assembly
-
-    # Check that a vectorized instruction is generated for older Intel
-    # generations, because we default to NCHWc layout.
-    @tvm.testing.parametrize_targets(*unsupported_targets)
-    @pytest.mark.parametrize("dtypes", [("uint8", "int8", "int32")])
-    def test_uses_vectorized_instruction(self, assembly):
-        assert "pmulhw" in assembly and "paddd" in assembly
 
 
 @tvm.testing.uses_gpu
