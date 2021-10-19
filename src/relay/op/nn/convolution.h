@@ -1076,10 +1076,13 @@ bool Conv2DTransposeRel(const Array<Type>& types, int num_inputs, const Attrs& a
     ICHECK_EQ(param->kernel_size.size(), 2);
     ICHECK_EQ(param->dilation.size(), 2);
 
-    Array<IndexExpr> wshape({dshape_nchw[1], indexdiv(param->channels, param->groups),
+    // OIHW, which is the canonical representation
+    Array<IndexExpr> wshape({param->channels, indexdiv(dshape_nchw[1], param->groups),
                              param->kernel_size[0], param->kernel_size[1]});
 
+    // Reverse OIHW --> kernel_layout
     wshape = trans_kernel_layout.BackwardShape(wshape);
+
     dilated_ksize_y = 1 + (param->kernel_size[0] - 1) * param->dilation[0];
     dilated_ksize_x = 1 + (param->kernel_size[1] - 1) * param->dilation[1];
     channels = param->channels;
