@@ -62,7 +62,7 @@ def conv2d_transpose_nchw_preprocess(data, kernel, strides, padding, out_dtype, 
     """Preprocess data and kernel to make the compute pattern
     of conv2d_transpose the same as conv2d"""
     batch, in_c, in_h, in_w = data.shape
-    _, out_c, filter_h, filter_w = kernel.shape
+    out_c, _, filter_h, filter_w = kernel.shape
     stride_h, stride_w = strides
     opad_h, opad_w = output_padding
     assert opad_h < stride_h and opad_w < stride_w
