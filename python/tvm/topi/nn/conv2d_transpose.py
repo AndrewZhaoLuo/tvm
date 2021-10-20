@@ -142,19 +142,19 @@ def conv2d_transpose_legalize(attrs, inputs, types):
         if kernel_layout == "HWIO":
             # input kernel layout is swapped to HWOI
             # output kernel layout will be IOHW
-            kernel = relay.transpose(kernel, axes=(3, 2, 0, 1))
+            kernel = relay.transpose(kernel, axes=(2, 3, 0, 1))
         elif kernel_layout == "HWOI":
             # input kernel layout is swapped to HWIO
             # output kernel layout will be IOHW
-            kernel = relay.transpose(kernel, axes=(2, 3, 0, 1))
+            kernel = relay.transpose(kernel, axes=(3, 2, 0, 1))
         elif kernel_layout == "IOHW":
             # input kernel layout is swapped to OIHW
             # output kernel layout will be IOHW
-            kernel = relay.transpose(kernel, axes=(1, 0, 2, 3))
+            pass
         elif kernel_layout == "OIHW":
             # input kernel layout is swapped to IOHW
             # output kernel layout will be IOHW
-            pass
+            kernel = relay.transpose(kernel, axes=(1, 0, 2, 3))
         else:
             # Skip legalize. Let relay.nn.conv2d_transpose to handle the case
             return None
@@ -162,8 +162,7 @@ def conv2d_transpose_legalize(attrs, inputs, types):
         # Set new attrs for conv2d_transpose.
         new_attrs = {k: attrs[k] for k in attrs.keys()}
         new_attrs["data_layout"] = "NCHW"
-        # layout of kernel should be IOHW, but kernel_layout should be swapped - OIHW
-        new_attrs["kernel_layout"] = "OIHW"
+        new_attrs["kernel_layout"] = "IOHW"
 
         # Convert data to NCHW.
         data = relay.transpose(data, axes=(0, 3, 1, 2))
