@@ -23,8 +23,11 @@ from collections import namedtuple
 
 import tvm
 from tvm import auto_scheduler, te
+from tvm.te.tensor import Tensor
+from tvm.topi.transform import reshape
 
 from ..utils import get_const_int, get_const_tuple, simplify, tag
+from .dense import matmul
 from .pad import pad
 from .utils import get_pad_tuple
 from .winograd_util import winograd_transform_matrices
@@ -358,6 +361,76 @@ def conv2d_hwcn(Input, Filter, stride, padding, dilation, out_dtype=None):
         name="Conv2dOutput",
         tag="conv2d_hwcn",
     )
+    return Output
+
+
+def conv2d_1x1_nhwc_matmul(
+    Input,
+    Filter,
+    stride,
+    padding,
+    dilation,
+    out_dtype="float32",
+    auto_scheduler_rewritten_layout="",
+):
+    """Launch 1x1 NHWC convolutions with stride=1, padding=0, dilation=0 as a matmul.
+
+    Parameters
+    ----------
+    Input : tvm.te.Tensor
+        4-D with shape [batch, in_height, in_width, in_channel]
+
+    Filter : tvm.te.Tensor
+        4-D with shape [filter_height, filter_width, in_channel, num_filter]
+
+    out_dtype: str = "float32",
+        The type of output tensor
+
+    auto_scheduler_rewritten_layout: str = ""
+        The layout after auto-scheduler's layout rewrite pass.
+
+    Returns
+    -------
+    output : tvm.te.Tensor
+        4-D with shape [batch, out_height, out_width, out_channel]
+    """
+    original_input_shape = Input.shape
+
+    assert stride == 1
+    assert padding == 0
+    assert dilation == 1
+
+    # Move Input shape to [batch * in_height * in_width, in_channels]
+    size = 1
+    for i in range(len(original_input_shape) - 1):
+        size *= original_input_shape[i]
+    new_shape = [size, original_input_shape[-1]]
+    Input = reshape(Input, new_shape)
+
+    if auto_scheduler_rewritten_layout:
+        # Infer shape for the rewritten layout
+        _, _, channel, num_filter = auto_scheduler.get_shape_from_rewritten_layout(
+            auto_scheduler_rewritten_layout, ["ry", "rx", "rc", "ff"]
+        )
+        auto_scheduler.remove_index_check(Filter)
+    else:
+        _, _, channel, num_filter = Filter.shape
+
+    # Move Filter shape to [in_channel, num_filter]
+    Filter = reshape(Filter, [channel, num_filter])
+    result = matmul(
+        Input,
+        Filter,
+        auto_scheduler_rewritten_layout=auto_scheduler_rewritten_layout,
+        out_dtype=out_dtype,
+    )
+
+    # output shape is just the input shape with the # channels set to out_channels
+    output_shape = list(original_input_shape)
+    output_shape[-1] = Filter.shape[-1]
+    Output = reshape(result, output_shape)
+    if auto_scheduler_rewritten_layout:
+        Output = auto_scheduler.rewrite_compute_body(Output, auto_scheduler_rewritten_layout)
     return Output
 
 

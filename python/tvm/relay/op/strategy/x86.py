@@ -17,14 +17,15 @@
 """Definition of x86 operator strategy."""
 # pylint: disable=invalid-name,unused-argument,wildcard-import,unused-wildcard-import
 import logging
-
 import re
+
 from tvm import topi
 from tvm.auto_scheduler import is_auto_scheduler_enabled
-from tvm.te import SpecializedCondition
 from tvm.relay.ty import is_dynamic
-from .generic import *
+from tvm.te import SpecializedCondition
+
 from .. import op as _op
+from .generic import *
 
 logger = logging.getLogger("strategy")
 
@@ -115,6 +116,7 @@ def conv2d_strategy_cpu(attrs, inputs, out_type, target):
     kernel_layout = attrs.kernel_layout
     if dilation_h < 1 or dilation_w < 1:
         raise ValueError("dilation should be positive value")
+    # breakpoint()
 
     if groups == 1:
         if layout == "NCHW":
@@ -150,8 +152,8 @@ def conv2d_strategy_cpu(attrs, inputs, out_type, target):
                 judge_winograd_auto_scheduler = (
                     "float" in data.dtype
                     and "float" in kernel.dtype
-                    and kernel_h == 3
-                    and kernel_w == 3
+                    and kernel_h in [1, 3, 5]
+                    and kernel_w in [1, 3, 5]
                     and stride_h == 1
                     and stride_w == 1
                     and dilation_h == 1

@@ -19,15 +19,17 @@
 from __future__ import absolute_import
 
 import logging
+
 import tvm
-from tvm import te, autotvm
+from tvm import autotvm, te
 from tvm.ir.transform import PassContext
 from tvm.runtime import Object
 from tvm.support import libinfo
 from tvm.target import Target
-from ..backend.utils import mangle_module_name
+
 from .. import function as _function
 from .. import ty as _ty
+from ..backend.utils import mangle_module_name
 from . import _backend
 
 logger = logging.getLogger("te_compiler")
@@ -130,6 +132,7 @@ def get_valid_implementations(op, attrs, inputs, out_type, target):
         else:
             for impl in spec.implementations:
                 ret.append(impl)
+    # breakpoint()
     return ret
 
 

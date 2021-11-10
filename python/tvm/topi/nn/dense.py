@@ -17,7 +17,8 @@
 # pylint: disable=invalid-name,unused-argument
 """TVM operator fully connected compute."""
 import tvm
-from tvm import te, auto_scheduler
+from tvm import auto_scheduler, te
+
 from .. import tag
 
 
