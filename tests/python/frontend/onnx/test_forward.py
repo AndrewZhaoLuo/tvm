@@ -4913,6 +4913,10 @@ onnx_test_folders = sorted(
 )
 
 unsupported_onnx_tests = [
+    "test_basic_convinteger",
+    "test_batchnorm_epsilon_training_mode",
+    "test_batchnorm_example_training_mode",
+    "test_bernoulli",
     "test_cast_BFLOAT16_to_FLOAT",
     "test_cast_DOUBLE_to_FLOAT16",
     "test_cast_FLOAT_to_BFLOAT16",

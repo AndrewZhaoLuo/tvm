@@ -218,13 +218,14 @@ class BaseGraphTuner(object):
     def _fetch_cfg(self):
         """Read and pre-process input schedules."""
         if isinstance(self._records, str):
-            records = load_from_file(self._records)
+            # records = load_from_file(self._records)
+            records = tvm.auto_scheduler.measure_record.load_records(self._records)
         else:
             records = self._records
         cfg_dict = {}
         for record in records:
             in_measure, _ = record
-            workload = in_measure.task.workload
+            workload = in_measure.task.workload_key
             if workload not in cfg_dict:
                 cfg_dict[workload] = []
             cfg_dict[workload].append(record)
@@ -241,6 +242,7 @@ class BaseGraphTuner(object):
             record_candidates = []
             infer_layout_func = get_infer_layout(node_entry["topi_op"][0])
             layout_tracking_dict = {}
+            breakpoint()
             for record in cfg_dict[workload]:
                 in_measure, out_measure = record
                 workload = in_measure.task.workload
