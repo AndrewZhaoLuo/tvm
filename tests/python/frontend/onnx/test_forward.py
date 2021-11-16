@@ -5084,7 +5084,6 @@ def test_onnx_nodes(target, dev, onnx_test):
         pytest.skip(f"Onnx test '{onnx_test}' not yet supported by TVM on {target_kind} targets")
 
     test_dir = os.path.join(onnx_test_node_dir, onnx_test)
-    print(f"***************Testing {onnx_test}")
 
     atol = 1e-5
     rtol = 1e-5
