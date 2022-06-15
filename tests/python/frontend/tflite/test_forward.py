@@ -21,45 +21,42 @@ TFLite testcases
 This article is a test script to test TFLite operator with Relay.
 """
 from __future__ import print_function
-from functools import partial
-import pytest
-import numpy as np
-import tvm
+
 import tempfile
-from tvm import te
-from tvm import relay
+from functools import partial
+
+import numpy as np
+import pytest
+import tvm
+from tvm import relay, te
 
 try:
-    import tensorflow.compat.v1 as tf
-
     # tensorflow.python.framework.ops module itself is not part of
     # TensorFlow's public API: the precise contents of that module
     # may vary from one version to the next
+    import tensorflow.compat.v1 as tf
     import tensorflow.compat.v1 as ops
 except ImportError:
     import tensorflow as tf
     import tensorflow as ops
-from tensorflow.python.framework import constant_op
 
-from tensorflow.python.ops import math_ops
-from tensorflow.python.ops import nn_ops
-from tensorflow.python.ops import array_ops
-from tensorflow.python.ops import gen_array_ops
-from tensorflow.python.ops import nn_impl
-from tensorflow.python.ops import variables
 from distutils.version import LooseVersion
+
+from tensorflow.python.framework import constant_op
+from tensorflow.python.ops import array_ops, gen_array_ops, math_ops, nn_impl, nn_ops, variables
 
 try:
     from tensorflow import lite as interpreter_wrapper
 except ImportError:
     from tensorflow.contrib import lite as interpreter_wrapper
 
-from tvm.contrib.download import download_testdata
+import os
+
 import tvm.relay.testing.tf as tf_testing
 from packaging import version as package_version
-
 from PIL import Image
-import os
+from tvm.contrib.download import download_testdata
+
 
 #######################################################################
 # Generic run functions for TVM & TFLite
@@ -1960,7 +1957,7 @@ def _test_rsqrt(data, quantized, int_quant_dtype=tf.int8):
 
         tvm_output = run_tvm_graph(tflite_model_quant, data, in_node)
         tvm.testing.assert_allclose(
-            np.squeeze(tvm_output[0]), np.squeeze(tflite_output[0]), rtol=1e-5, atol=1e-2
+            np.squeeze(tvm_output[0]), np.squeeze(tflite_output[0]), rtol=0, atol=1
         )
 
 
