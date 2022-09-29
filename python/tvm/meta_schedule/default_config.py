@@ -20,6 +20,8 @@ import logging
 from os import path as osp
 from typing import Callable, Dict, List, Optional, Union
 
+from tvm._ffi.registry import register_func
+from tvm.contrib import nvcc
 from tvm.ir import IRModule
 from tvm.target import Target
 from tvm.tir import PrimFunc
@@ -43,6 +45,20 @@ FnPostproc = Callable[[], List[Postproc]]
 FnMutatorProb = Callable[[], Dict[Mutator, float]]
 
 
+def target_has_vnni(target):
+    return target in {
+        "cascadelake",
+        "icelake-client",
+        "icelake-server",
+        "rocketlake",
+        "tigerlake",
+        "cooperlake",
+        "sapphirerapids",
+        "alderlake",
+    }
+
+
+@register_func("tvm.meta_schedule.tune.parse_mod")  # for use in ApplyHistoryBest
 def mod(mod: Union[PrimFunc, IRModule]) -> IRModule:  # pylint: disable=redefined-outer-name
     """Normalize the input to an IRModule"""
     if isinstance(mod, PrimFunc):
@@ -53,7 +69,7 @@ def mod(mod: Union[PrimFunc, IRModule]) -> IRModule:  # pylint: disable=redefine
         raise TypeError(f"Expected `mod` to be PrimFunc or IRModule, but gets: {mod}")
     func_names = mod.get_global_vars()
     (func_name,) = func_names
-    if len(func_names) == 1 and func_name.name_hint != "main":
+    if len(func_names) == 1 and func_name != "main":
         mod = IRModule({"main": mod[func_name]})
     return mod
 
@@ -174,9 +190,13 @@ def schedule_rules(  # pylint: disable=redefined-outer-name
         return sch_rules()
     if sch_rules is not None:
         raise TypeError(f"Expected `sch_rules` to be None or callable, but gets: {sch_rules}")
-    if target.kind.name in ["llvm", "hexagon"]:
+    if target.kind.name == "llvm":
+        if target_has_vnni(target.mcpu):
+            return _DefaultLLVMVNNI.schedule_rules()
         return _DefaultLLVM.schedule_rules()
     if target.kind.name in ["cuda", "rocm", "vulkan"]:
+        if target.kind.name == "cuda" and nvcc.have_tensorcore(target=target):
+            return _DefaultCUDATensorCore.schedule_rules()
         return _DefaultCUDA.schedule_rules()
     raise ValueError(f"Unsupported target: {target}")
 
@@ -190,9 +210,13 @@ def postproc(  # pylint: disable=redefined-outer-name
         return postproc()
     if postproc is not None:
         raise TypeError(f"Expected `postproc` to be None or callable, but gets: {postproc}")
-    if target.kind.name in ["llvm", "hexagon"]:
+    if target.kind.name == "llvm":
+        if target_has_vnni(target.mcpu):
+            return _DefaultLLVMVNNI.postprocs()
         return _DefaultLLVM.postprocs()
     if target.kind.name in ["cuda", "rocm", "vulkan"]:
+        if target.kind.name == "cuda" and nvcc.have_tensorcore(target=target):
+            return _DefaultCUDATensorCore.postprocs()
         return _DefaultCUDA.postprocs()
     raise ValueError(f"Unsupported target: {target}")
 
@@ -208,9 +232,13 @@ def mutator_probs(  # pylint: disable=redefined-outer-name
         raise TypeError(
             f"Expected `mutator_probs` to be None or callable, but gets: {mutator_probs}"
         )
-    if target.kind.name in ["llvm", "hexagon"]:
+    if target.kind.name == "llvm":
+        if target_has_vnni(target.mcpu):
+            return _DefaultLLVMVNNI.mutator_probs()
         return _DefaultLLVM.mutator_probs()
     if target.kind.name in ["cuda", "rocm", "vulkan"]:
+        if target.kind.name == "cuda" and nvcc.have_tensorcore(target=target):
+            return _DefaultCUDATensorCore.mutator_probs()
         return _DefaultCUDA.mutator_probs()
     raise ValueError(f"Unsupported target: {target}")
 
@@ -275,6 +303,78 @@ class _DefaultLLVM:
             M.MutateUnroll(): 0.03,
             M.MutateParallel(max_jobs_per_core=16): 0.02,
         }
+
+
+class _DefaultLLVMVNNI:
+    """Default tuning configuration for LLVM with VNNI."""
+
+    @staticmethod
+    def schedule_rules() -> List[ScheduleRule]:
+        from tvm.meta_schedule import schedule_rule as M
+        from tvm.tir.tensor_intrin.x86 import VNNI_DOT_16x4_INTRIN
+
+        logger.info("Using schedule rule: LLVM VNNI")
+
+        return [
+            M.AutoInline(
+                into_producer=False,
+                into_consumer=True,
+                inline_const_tensor=True,
+                disallow_if_then_else=True,
+                require_injective=True,
+                require_ordered=True,
+                disallow_op=["tir.exp"],
+            ),
+            M.AddRFactor(max_jobs_per_core=16, max_innermost_factor=64),
+            M.MultiLevelTilingWithIntrin(
+                VNNI_DOT_16x4_INTRIN,
+                structure="SSRSRS",
+                tile_binds=None,
+                max_innermost_factor=64,
+                vector_load_lens=None,
+                reuse_read=None,
+                reuse_write=M.ReuseType(
+                    req="may",
+                    levels=[1, 2],
+                    scope="global",
+                ),
+            ),
+            M.MultiLevelTiling(
+                structure="SSRSRS",
+                tile_binds=None,
+                max_innermost_factor=64,
+                vector_load_lens=None,
+                reuse_read=None,
+                reuse_write=M.ReuseType(
+                    req="may",
+                    levels=[1, 2],
+                    scope="global",
+                ),
+            ),
+            M.ParallelizeVectorizeUnroll(
+                max_jobs_per_core=16,
+                max_vectorize_extent=64,
+                unroll_max_steps=[0, 16, 64, 512],
+                unroll_explicit=True,
+            ),
+            M.RandomComputeLocation(),
+        ]
+
+    @staticmethod
+    def postprocs() -> List[Postproc]:
+        from tvm.meta_schedule import postproc as M
+
+        return [
+            M.DisallowDynamicLoop(),
+            M.RewriteParallelVectorizeUnroll(),
+            M.RewriteReductionBlock(),
+            M.RewriteTensorize(vectorize_init_loop=True),
+            M.RewriteLayout(),
+        ]
+
+    @staticmethod
+    def mutator_probs() -> Dict[Mutator, float]:
+        return _DefaultLLVM.mutator_probs()
 
 
 class _DefaultCUDA:
@@ -354,6 +454,8 @@ class _DefaultCUDATensorCore:
     def schedule_rules():
         from tvm.meta_schedule import schedule_rule as M
         from tvm.tir.tensor_intrin.cuda import get_wmma_intrin_group
+
+        logger.info("Using schedule rule: CUDA tensorcore")
 
         return [
             M.MultiLevelTilingTensorCore(
