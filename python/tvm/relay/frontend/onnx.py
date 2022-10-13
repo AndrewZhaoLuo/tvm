@@ -5906,7 +5906,13 @@ def from_onnx(
     graph = model.graph
 
     try:
-        opset_in_model = model.opset_import[0].version if model.opset_import else 1
+        # TODO: handle other opset imports
+        domain_to_opset = {}
+        for imp in model.opset_import:
+            domain_to_opset[imp.domain] = imp.version
+
+        # It's either ai.onnx or the very first one
+        opset_in_model = domain_to_opset.get("ai.onnx", model.opset_import[0].version)
     except AttributeError:
         opset_in_model = 1
 
