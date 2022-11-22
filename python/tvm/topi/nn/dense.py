@@ -18,6 +18,7 @@
 """TVM operator fully connected compute."""
 import tvm
 from tvm import auto_scheduler, te
+from tvm.topi.utils import get_const_tuple
 
 from .. import tag
 
@@ -281,6 +282,53 @@ def dense_pack(data, weight, bias=None, out_dtype=None):
         ),
         name="T_dense_pack",
         tag="dense_pack",
+    )
+    if bias is not None:
+        C = te.compute((M, N), lambda i, j: C[i, j] + bias[j].astype(out_dtype), tag=tag.BROADCAST)
+    return C
+
+def dense_packed(data, weight, bias=None, out_dtype=None):
+    """The default implementation of dense_pack in topi.
+
+    Parameters
+    ----------
+    data : tvm.te.Tensor
+        2-D with shape [batch, in_dim]
+
+    weight : tvm.te.Tensor
+        2-D with shape [out_dim, in_dim]
+
+    bias : Optional[tvm.te.Tensor]
+        1-D with shape [out_dim]
+
+    out_dtype : Optional[str]
+        The output type. This is used for mixed precision.
+
+    Returns
+    -------
+    output : tvm.te.Tensor
+        2-D with shape [batch, out_dim]
+    """
+    if out_dtype is None:
+        out_dtype = data.dtype
+    K, M, bK, rM = get_const_tuple(data.shape)  # batch, in_dim
+    _, N, _, rN = get_const_tuple(weight.shape)  # out_dim
+    N = N * rN
+    M = M * rM
+    K = K * bK
+
+    idxdiv = tvm.tir.indexdiv
+    idxmod = tvm.tir.indexmod
+    k = te.reduce_axis((0, K), name="k")
+    C = te.compute(
+        (M, N),
+        lambda y, x: te.sum(
+            data[idxdiv(k, bK), idxdiv(y, rM), idxmod(k, bK), idxmod(y, rM)].astype(out_dtype)
+            * weight[idxdiv(k, bK), idxdiv(x, rN), idxmod(k, bK), idxmod(x, rN)].astype(out_dtype),
+            axis=k,
+        ),
+        name="T_dense_packed",
+        tag="dense_packed",
     )
     if bias is not None:
         C = te.compute((M, N), lambda i, j: C[i, j] + bias[j].astype(out_dtype), tag=tag.BROADCAST)

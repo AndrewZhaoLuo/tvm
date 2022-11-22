@@ -911,6 +911,18 @@ def dense_pack_strategy(attrs, inputs, out_type, target):
     )
     return strategy
 
+@override_native_generic_func("dense_packed_strategy")
+def dense_packed_strategy(attrs, inputs, out_type, target):
+    """dense_pack generic strategy"""
+    logger.warning("dense_pack is not optimized for this platform.")
+    strategy = _op.OpStrategy()
+    strategy.add_implementation(
+        wrap_compute_dense(topi.nn.dense_packed),
+        wrap_topi_schedule(topi.generic.schedule_dense),
+        name="dense_packed.generic",
+    )
+    return strategy
+
 
 # batch_matmul
 def wrap_compute_batch_matmul(

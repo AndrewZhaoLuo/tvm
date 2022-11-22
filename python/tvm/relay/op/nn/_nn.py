@@ -106,6 +106,7 @@ def alter_op_layout_dense(attrs, inputs, tinfos, out_type):
 
 # dense_pack
 reg.register_strategy("nn.contrib_dense_pack", strategy.dense_pack_strategy)
+reg.register_strategy("nn.contrib_dense_packed", strategy.dense_packed_strategy)
 
 
 # fifo_buffer

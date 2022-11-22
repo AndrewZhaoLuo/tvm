@@ -56,6 +56,9 @@ def _alter_dense_layout(attrs, inputs, tinfos, out_type):
     )
     workload = autotvm.task.get_workload(outs)
 
+    # print("altering to dense_pack")
+    # return relay.nn.contrib_dense_pack(inputs[0], inputs[1], "CN256c16n", None, "float32")
+
     if workload:
         cfg = dispatch_ctx.query(target, workload)
         topi_impl = workload[0]
@@ -133,7 +136,12 @@ def vnni_legalize(inputs, arg_types, op, attrs, need_expand=False):
 @nn.dense_legalize.register("cpu")
 def _dense_legalize(attrs, inputs, arg_types):
     """Legalizes s8, s8 -> s32 dense for VNNI."""
-    return vnni_legalize(inputs, arg_types, relay.nn.dense, attrs)
+    if arg_types[0].shape[0] != 1:
+        data = relay.layout_transform(inputs[0], "NC", "CN256c8n")
+        weight = relay.layout_transform(inputs[1], "NC", "CN256c32n")
+        return relay.nn.contrib_dense_packed(data, weight)
+    else:
+        return None
 
 
 @nn.batch_matmul_legalize.register("cpu")
