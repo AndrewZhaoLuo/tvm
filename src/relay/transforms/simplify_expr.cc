@@ -80,6 +80,39 @@ class SimplifyReshape : public DFPatternRewrite {
 };
 
 /*!
+ * \brief RemoveExtraneousReshape resolves dynamic reshape dimensions, and removes reshapes
+ *   which would not change the shape of the input. Should be run after SimplifyReshape.
+ */
+class RemoveExtraneousReshape : public DFPatternRewrite {
+ public:
+  RemoveExtraneousReshape() {
+    x_ = IsWildcard();
+    auto reshape = IsOp("reshape") || IsOp("contrib_reverse_reshape");
+    pattern_ = reshape({x_});
+  }
+
+  Expr Callback(const Expr& pre, const Expr& post,
+                const Map<DFPattern, Array<Expr>>& node_map) const override {
+    auto& x = node_map[x_][0];
+
+    auto input_tensor_type = Downcast<TensorType>(x->checked_type());
+    auto reshape_tensor_type = Downcast<TensorType>(x->checked_type());
+
+    // If the type checker can prove shape does not change from reshapes, we good
+    if (input_tensor_type->shape == reshape_tensor_type->shape) {
+      return x;
+    }
+
+    // If we don't have some type information, we can't do anything
+    return post;
+  }
+
+ private:
+  /*! \brief Pattern input */
+  DFPattern x_;
+};
+
+/*!
  * \brief SimplifySameCast matches the pattern of cast data to the same dtype.
  */
 class SimplifySameCast : public DFPatternRewrite {
@@ -955,6 +988,7 @@ Expr SimplifyExpr(const Expr& expr, const IRModule& mod) {
   composer.AddRewrite<SimplifyRSqrt>();
   composer.AddRewrite<EliminateIdentityRewrite>();
   composer.AddRewrite<SimplifyReshape>();
+  composer.AddRewrite<RemoveExtraneousReshape>();
   composer.AddRewrite<SimplifyTranspose>();
   composer.AddRewrite<SimplifySameCast>();
   composer.AddRewrite<SimplifyConsecutiveCast>();
