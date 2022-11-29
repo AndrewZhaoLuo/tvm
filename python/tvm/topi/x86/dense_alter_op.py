@@ -18,14 +18,13 @@
 """Dense alter op functions for x86"""
 
 import tvm
-from tvm import te
-from tvm import relay
-from tvm import autotvm
-from .dense import _default_dense_pack_config
-from ..utils import get_const_tuple
-from ..nn import dense_alter_layout
-from .utils import target_has_vnni
+from tvm import autotvm, relay, te
+
 from .. import nn
+from ..nn import dense_alter_layout
+from ..utils import get_const_tuple
+from .dense import _default_dense_pack_config
+from .utils import target_has_vnni
 
 
 def check_vnni_applicable(x, y, allow_padding=False):
@@ -133,7 +132,7 @@ def vnni_legalize(inputs, arg_types, op, attrs, need_expand=False):
     return None
 
 
-@nn.dense_legalize.register("cpu")
+@nn.dense_legalize.register(["cpu", "arm_cpu"])
 def _dense_legalize(attrs, inputs, arg_types):
     """Legalizes s8, s8 -> s32 dense for VNNI."""
     if arg_types[0].shape[0] != 1:
