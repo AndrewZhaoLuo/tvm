@@ -310,11 +310,13 @@ RELAY_REGISTER_OP("nn.contrib_dense_pack")
 TVM_REGISTER_NODE_TYPE(DensePackedAttrs);
 
 // Positional relay function to create dense_packed operator used by frontend FFI.
-Expr MakeDensePacked(Expr data, Expr weight, IndexExpr units,
-                   DataType out_dtype) {
+Expr MakeDensePacked(Expr data, Expr weight, IndexExpr units, DataType out_dtype, String in_layout,
+                     String out_layout) {
   auto attrs = make_object<DensePackedAttrs>();
   attrs->units = units;
   attrs->out_dtype = out_dtype;
+  attrs->in_layout = in_layout;
+  attrs->out_layout = out_layout;
   static const Op& op = Op::Get("nn.contrib_dense_packed");
   return Call(op, {data, weight}, Attrs(attrs), {});
 }
@@ -322,7 +324,7 @@ Expr MakeDensePacked(Expr data, Expr weight, IndexExpr units,
 TVM_REGISTER_GLOBAL("relay.op.nn._make.contrib_dense_packed").set_body_typed(MakeDensePacked);
 
 bool DensePackedRel(const Array<Type>& types, int num_inputs, const Attrs& attrs,
-                  const TypeReporter& reporter) {
+                    const TypeReporter& reporter) {
   ICHECK_EQ(types.size(), 3);
   const auto* data = types[0].as<TensorTypeNode>();
   const auto* weight = types[1].as<TensorTypeNode>();
@@ -331,14 +333,26 @@ bool DensePackedRel(const Array<Type>& types, int num_inputs, const Attrs& attrs
   const DensePackedAttrs* param = attrs.as<DensePackedAttrs>();
   ICHECK(param != nullptr);
 
-  ICHECK_EQ(data->shape.size(), 4) << "Only 2D data is supported";
+  ICHECK_EQ(data->shape.size(), 4) << "Only 4D data is supported";
   ICHECK(weight->shape.size() == 3 || weight->shape.size() == 4) << "Expect weight to be 3D or 4D";
 
-  // bM 32
-  // bK 256
-  // bN 128
-  // Config(M, N, K, f"KM{bK}k{rM}m", f"KN{bK}k{rN}n", "MN", 0),
-  Array<tvm::PrimExpr> oshape = {data->shape[1]*data->shape[3], weight->shape[1] * weight->shape[3]};
+  int M_index = -1;
+  int m_index = -1;
+  int N_index = -1;
+  int n_index = -1;
+
+  for (int i = 0; i < param->in_layout.size(); i++) {
+    char in = param->in_layout.at(i);
+    char out = param->out_layout.at(i);
+
+    if (in == 'M') M_index = i;
+    if (in == 'm') m_index = i;
+    if (out == 'N') N_index = i;
+    if (out == 'n') n_index = i;
+  }
+
+  Array<tvm::PrimExpr> oshape = {data->shape[M_index] * data->shape[m_index],
+                                 weight->shape[N_index] * weight->shape[n_index]};
 
   DataType out_dtype = param->out_dtype;
   if (out_dtype.bits() == 0) {
@@ -349,10 +363,9 @@ bool DensePackedRel(const Array<Type>& types, int num_inputs, const Attrs& attrs
   return true;
 }
 
-InferCorrectLayoutOutput DensePackedInferCorrectLayout(const Attrs& attrs,
-                                                     const Array<Layout>& new_in_layouts,
-                                                     const Array<Layout>& old_in_layouts,
-                                                     const Array<tvm::relay::Type>& old_in_types) {
+InferCorrectLayoutOutput DensePackedInferCorrectLayout(
+    const Attrs& attrs, const Array<Layout>& new_in_layouts, const Array<Layout>& old_in_layouts,
+    const Array<tvm::relay::Type>& old_in_types) {
   auto params = attrs.as<DensePackedAttrs>();
   ICHECK(params);
   return InferCorrectLayoutOutput({"CN256c8n", "CN256c32n"}, {"NC"}, attrs);
@@ -371,7 +384,7 @@ RELAY_REGISTER_OP("nn.contrib_dense_packed")
     .add_argument("data", "2D Tensor", "Input data.")
     .add_argument("weight", "3D Tensor", "Packeded weight matrix.")
     .set_support_level(10)
-    .set_attr<FInferCorrectLayout>("FInferCorrectLayout", DensePackedInferCorrectLayout)
+    // .set_attr<FInferCorrectLayout>("FInferCorrectLayout", DensePackedInferCorrectLayout)
     .add_type_rel("DensePacked", DensePackedRel)
     .set_attr<TOpPattern>("TOpPattern", kOutEWiseFusable);
 
