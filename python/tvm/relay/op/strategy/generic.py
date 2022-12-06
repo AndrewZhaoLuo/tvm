@@ -21,12 +21,8 @@ import re
 
 from tvm import _ffi, ir, te, topi
 from tvm.target import generic_func, override_native_generic_func
-from tvm.topi.utils import (
-    get_const_float,
-    get_const_int,
-    get_const_tuple,
-    get_float_tuple,
-)
+from tvm.topi.utils import (get_const_float, get_const_int, get_const_tuple,
+                            get_float_tuple)
 
 from .. import op as _op
 
@@ -917,7 +913,7 @@ def dense_packed_strategy(attrs, inputs, out_type, target):
     logger.warning("dense_pack is not optimized for this platform.")
     strategy = _op.OpStrategy()
     strategy.add_implementation(
-        wrap_compute_dense(topi.nn.dense_packed),
+        wrap_compute_dense(topi.nn.dense_packed_iterated),
         wrap_topi_schedule(topi.generic.schedule_dense),
         name="dense_packed.generic",
     )

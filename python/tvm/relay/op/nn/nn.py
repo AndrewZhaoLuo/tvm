@@ -1666,7 +1666,10 @@ def contrib_dense_pack(data, weight, weight_layout="NC", units=None, out_dtype="
     """
     return _make.contrib_dense_pack(data, weight, weight_layout, units, out_dtype)
 
-def contrib_dense_packed(data, weight, units=None, out_dtype=""):
+
+def contrib_dense_packed(
+    data, weight, in_layout="MKmk", out_layout="NKnk", units=None, out_dtype=""
+):
     """Dense operator.
     Applies a linear transformation with packed weight
 
@@ -1698,7 +1701,9 @@ def contrib_dense_packed(data, weight, units=None, out_dtype=""):
     result : tvm.relay.Expr
         The computed result.
     """
-    return _make.contrib_dense_packed(data, weight, units, out_dtype)
+    return _make.contrib_dense_packed(
+        data, weight, units, out_dtype, in_layout, out_layout
+    )
 
 
 def fifo_buffer(data, buffer, axis):

@@ -1115,6 +1115,8 @@ struct DensePackAttrs : public tvm::AttrsNode<DensePackAttrs> {
 struct DensePackedAttrs : public tvm::AttrsNode<DensePackedAttrs> {
   IndexExpr units;
   DataType out_dtype;
+  String in_layout;
+  String out_layout;
 
   TVM_DECLARE_ATTRS(DensePackedAttrs, "relay.attrs.DensePackedAttrs") {
     TVM_ATTR_FIELD(units).describe("Number of hidden units of the dense transformation.");
@@ -1123,6 +1125,10 @@ struct DensePackedAttrs : public tvm::AttrsNode<DensePackedAttrs> {
     TVM_ATTR_FIELD(out_dtype)
         .set_default(NullValue<DataType>())
         .describe("Output data type, set to explicit type under mixed precision setting");
+
+    TVM_ATTR_FIELD(in_layout).set_default("MKmk").describe("Input Layout For Packed Stuff");
+
+    TVM_ATTR_FIELD(out_layout).set_default("NKnk").describe("Output Layout for Packed Stuff");
   }
 };
 
