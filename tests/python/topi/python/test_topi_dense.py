@@ -197,10 +197,6 @@ def test_dense_packed_iterable(
     in_dtype,
     out_dtype,
 ):
-    implementations = [
-        (topi.nn.dense_packed_iterated, topi.generic.schedule_dense),
-    ]
-
     canonical_data_shape = [13, 9, 17, 5]  # MKmk
     canonical_weight_shape = [3, 9, 7, 5]  # NKnk
     realM = canonical_data_shape[0] * canonical_data_shape[2]
