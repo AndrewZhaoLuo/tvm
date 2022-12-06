@@ -287,6 +287,7 @@ def dense_pack(data, weight, bias=None, out_dtype=None):
         C = te.compute((M, N), lambda i, j: C[i, j] + bias[j].astype(out_dtype), tag=tag.BROADCAST)
     return C
 
+
 def dense_packed(data, weight, bias=None, out_dtype=None):
     """The default implementation of dense_pack in topi.
 
@@ -325,6 +326,59 @@ def dense_packed(data, weight, bias=None, out_dtype=None):
         lambda y, x: te.sum(
             data[idxdiv(k, bK), idxdiv(y, rM), idxmod(k, bK), idxmod(y, rM)].astype(out_dtype)
             * weight[idxdiv(k, bK), idxdiv(x, rN), idxmod(k, bK), idxmod(x, rN)].astype(out_dtype),
+            axis=k,
+        ),
+        name="T_dense_packed",
+        tag="dense_packed",
+    )
+    if bias is not None:
+        C = te.compute((M, N), lambda i, j: C[i, j] + bias[j].astype(out_dtype), tag=tag.BROADCAST)
+    return C
+
+
+def dense_packed_iterated(
+    data, weight, layout_data="MKmk", layout_weight="NKnk", bias=None, out_dtype=None
+):
+    """
+    Layout
+    """
+    if out_dtype is None:
+        out_dtype = data.dtype
+
+    def reindex(indices, canonical_form, requested_form):
+        index_map = {k: v for k, v in zip(canonical_form, indices)}
+        return tuple(index_map[k] for k in requested_form)
+
+    # Canonical in [N, K, n, k], [M, K, m, k] form
+    data_shape = reindex(get_const_tuple(data.shape), layout_data, "KMkm")
+    weight_shape = reindex(get_const_tuple(weight.shape), layout_weight, "KNkn")
+
+    K, M, bK, rM = data_shape
+    _, N, _, rN = weight_shape
+
+    N = N * rN
+    M = M * rM
+    K = K * bK
+
+    idxdiv = tvm.tir.indexdiv
+    idxmod = tvm.tir.indexmod
+    k = te.reduce_axis((0, K), name="k")
+
+    def data_index(y):
+        # Assumes KMkm
+        return reindex(
+            [idxdiv(k, bK), idxdiv(y, rM), idxmod(k, bK), idxmod(y, rM)], "KMkm", layout_data
+        )
+
+    def weight_index(x):
+        return reindex(
+            [idxdiv(k, bK), idxdiv(x, rN), idxmod(k, bK), idxmod(x, rN)], "KNkn", layout_weight
+        )
+
+    C = te.compute(
+        (M, N),
+        lambda y, x: te.sum(
+            data[data_index(y)].astype(out_dtype) * weight[weight_index(x)].astype(out_dtype),
             axis=k,
         ),
         name="T_dense_packed",

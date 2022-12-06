@@ -17,9 +17,9 @@
 """Tensor class for computation declaration."""
 # pylint: disable=invalid-name
 import tvm._ffi
-
 from tvm.runtime import Object, ObjectGeneric, convert_to_object
-from tvm.tir import expr as _expr, DataProducer
+from tvm.tir import DataProducer
+from tvm.tir import expr as _expr
 
 from . import _ffi_api
 
@@ -59,6 +59,10 @@ class Tensor(DataProducer, _expr.ExprOp):
 
     def __call__(self, *indices):
         ndim = self.ndim
+
+        if isinstance(indices[0], tuple):
+            indices = indices[0]
+
         if len(indices) != ndim:
             raise ValueError(
                 "Need to provide %d index in tensor but %d was provided" % (ndim, len(indices))

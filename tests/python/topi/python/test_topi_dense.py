@@ -16,17 +16,17 @@
 # under the License.
 """Test code for dense operator"""
 import contextlib
+import sys
+
 import numpy as np
 import pytest
-import sys
+from common import Int8Fallback
 
 import tvm
 import tvm.testing
 import tvm.topi.testing
 from tvm import te, topi
 from tvm.topi.utils import get_const_tuple
-
-from common import Int8Fallback
 
 random_seed = tvm.testing.parameter(0)
 
@@ -181,6 +181,72 @@ def test_dense_cuda_int8(
             out_dtype,
             implementations=implementations,
         )
+
+
+import itertools
+
+
+def reindex(indices, canonical_form, requested_form):
+    index_map = {k: v for k, v in zip(canonical_form, indices)}
+    return [index_map[k] for k in requested_form]
+
+
+def test_dense_packed_iterable(
+    target,
+    dev,
+    in_dtype,
+    out_dtype,
+):
+    implementations = [
+        (topi.nn.dense_packed_iterated, topi.generic.schedule_dense),
+    ]
+
+    canonical_data_shape = [13, 9, 17, 5]  # MKmk
+    canonical_weight_shape = [3, 9, 7, 5]  # NKnk
+    realM = canonical_data_shape[0] * canonical_data_shape[2]
+    realK = canonical_data_shape[1] * canonical_data_shape[3]
+    realN = canonical_weight_shape[0] * canonical_weight_shape[2]
+
+    layouts_data = itertools.permutations("MKmk")
+    layouts_weight = itertools.permutations("NKnk")
+
+    for layout_data, layout_weight in itertools.product(layouts_data, layouts_weight):
+        A = te.placeholder(
+            reindex(canonical_data_shape, "MKmk", layout_data), name="A", dtype=in_dtype
+        )
+        B = te.placeholder(
+            reindex(canonical_weight_shape, "NKnk", layout_weight), name="B", dtype=in_dtype
+        )
+
+        a_np = np.random.randn(realM, realK).astype("float32")
+        b_np = np.random.randn(realN, realK).astype("float32")
+        d_np = a_np @ b_np.T
+
+        # First get canonical form, then transpose
+        a_tvm = a_np.reshape(reindex(canonical_data_shape, "MKmk", "MmKk"))
+        a_tvm = a_tvm.transpose(reindex([0, 1, 2, 3], "MmKk", layout_data))
+        b_tvm = b_np.reshape(reindex(canonical_weight_shape, "NKnk", "NnKk"))
+        b_tvm = b_tvm.transpose(reindex([0, 1, 2, 3], "NnKk", layout_weight))
+
+        with tvm.target.Target(target):
+            D = topi.nn.dense_packed_iterated(
+                A,
+                B,
+                bias=None,
+                out_dtype=out_dtype,
+                layout_weight=layout_weight,
+                layout_data=layout_data,
+            )
+            s = topi.generic.schedule_dense([D])
+
+        a = tvm.nd.array(a_tvm, dev)
+        b = tvm.nd.array(b_tvm, dev)
+        d = tvm.nd.array(np.zeros(get_const_tuple(D.shape), dtype=out_dtype), dev)
+        f = tvm.build(s, [A, B, D], target, name="dense_packed_iterated")
+
+        print(A, B, layout_data, layout_weight)
+        f(a, b, d)
+        tvm.testing.assert_allclose(d.numpy(), d_np, atol=0.001, rtol=0.01)
 
 
 if __name__ == "__main__":
