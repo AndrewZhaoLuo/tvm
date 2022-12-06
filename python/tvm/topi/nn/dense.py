@@ -337,7 +337,7 @@ def dense_packed(data, weight, bias=None, out_dtype=None):
 
 
 def dense_packed_iterated(
-    data, weight, layout_data="MKmk", layout_weight="NKnk", bias=None, out_dtype=None
+    data, weight, bias=None, out_dtype=None, layout_data="MKmk", layout_weight="NKnk"
 ):
     """
     Layout

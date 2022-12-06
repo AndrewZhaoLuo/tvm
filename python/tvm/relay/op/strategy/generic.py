@@ -877,7 +877,7 @@ def wrap_compute_dense(
             args.append("")
             args.append(get_meta_schedule_original_shape(attrs))
         args[1] = copy_if_identical(inputs[0], inputs[1])
-        return [topi_compute(*args)]
+        return [topi_compute(*args, layout_data=attrs.in_layout, layout_weight=attrs.out_layout)]
 
     return _compute_dense
 
@@ -906,6 +906,7 @@ def dense_pack_strategy(attrs, inputs, out_type, target):
         name="dense_pack.generic",
     )
     return strategy
+
 
 @override_native_generic_func("dense_packed_strategy")
 def dense_packed_strategy(attrs, inputs, out_type, target):
