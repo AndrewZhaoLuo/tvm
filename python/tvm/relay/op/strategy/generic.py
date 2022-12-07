@@ -21,8 +21,7 @@ import re
 
 from tvm import _ffi, ir, te, topi
 from tvm.target import generic_func, override_native_generic_func
-from tvm.topi.utils import (get_const_float, get_const_int, get_const_tuple,
-                            get_float_tuple)
+from tvm.topi.utils import get_const_float, get_const_int, get_const_tuple, get_float_tuple
 
 from .. import op as _op
 
@@ -877,7 +876,12 @@ def wrap_compute_dense(
             args.append("")
             args.append(get_meta_schedule_original_shape(attrs))
         args[1] = copy_if_identical(inputs[0], inputs[1])
-        return [topi_compute(*args, layout_data=attrs.in_layout, layout_weight=attrs.out_layout)]
+        if hasattr(attrs, "in_layout"):
+            return [
+                topi_compute(*args, layout_data=attrs.in_layout, layout_weight=attrs.out_layout)
+            ]
+        else:
+            return [topi_compute(*args)]
 
     return _compute_dense
 
