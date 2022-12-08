@@ -25,6 +25,7 @@
 #include <tvm/runtime/registry.h>
 
 #include <algorithm>
+#include <execution>
 #include <vector>
 
 #include "../../../../3rdparty/compiler-rt/builtin_fp16.h"
@@ -371,9 +372,11 @@ void topk(DLTensor* input, DLTensor* out_values, DLTensor* out_indices, int k, i
         sorter.emplace_back(std::make_pair(kk, data_ptr[full_idx]));
       }
       if (is_ascend) {
-        std::stable_sort(sorter.begin(), sorter.end(), CompareAscend<DataType>);
+        std::stable_sort(std::execution::par, sorter.begin(), sorter.end(),
+                         CompareAscend<DataType>);
       } else {
-        std::stable_sort(sorter.begin(), sorter.end(), CompareDescend<DataType>);
+        std::stable_sort(std::execution::par, sorter.begin(), sorter.end(),
+                         CompareDescend<DataType>);
       }
       int64_t cnt = k > 0 ? k : input->shape[axis];
       for (int64_t kk = 0; kk < cnt; ++kk) {
