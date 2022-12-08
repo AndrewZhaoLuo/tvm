@@ -128,8 +128,10 @@ include_directories(SYSTEM ${COMPILER_RT_PATH})
 include_directories(SYSTEM ${PICOJSON_PATH})
 
 # initial variables
-set(TVM_LINKER_LIBS "")
-set(TVM_RUNTIME_LINKER_LIBS "")
+set(TVM_LINKER_LIBS)
+
+# Need `sudo apt install libtbb-dev` or `brew install tbb`
+set(TVM_RUNTIME_LINKER_LIBS "-ltbb")
 
 
 # Check if this is being run on its own or as a subdirectory for another project
