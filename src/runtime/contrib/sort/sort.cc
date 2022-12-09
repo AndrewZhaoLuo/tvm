@@ -397,6 +397,8 @@ void topk_old(DLTensor* input, DLTensor* out_values, DLTensor* out_indices, int 
 template <typename DataType, typename IndicesType>
 void topk_old2(DLTensor* input, DLTensor* out_values, DLTensor* out_indices, int k, int axis,
           bool is_ascend) {
+  // -# Need `sudo apt install libtbb-dev` or `brew install tbb`
+  // For CMakeLists: -set(TVM_RUNTIME_LINKER_LIBS "-ltbb")
   // Use heapsort
   DataType* data_ptr = static_cast<DataType*>(input->data);
   DataType* values_ptr =
@@ -484,15 +486,14 @@ void topk(DLTensor* input, DLTensor* out_values, DLTensor* out_indices, int k, i
       int64_t src_base_idx = i * input->shape[axis] * axis_mul_after + j;
       int64_t dst_base_idx = i * k * axis_mul_after + j;
 
-
-      // Start by creating heap with k elements 
+      // Start by creating heap with k elements
       int cur_axis_index = 0;
       for (; cur_axis_index < k && cur_axis_index < input->shape[axis]; cur_axis_index++) {
         int64_t full_idx = src_base_idx + cur_axis_index * axis_mul_after;
         running_heap.emplace_back(std::make_pair(cur_axis_index, data_ptr[full_idx]));
       }
 
-      // Create min heap 
+      // Create min heap
       std::make_heap(running_heap.begin(), running_heap.end(), CompareDescend<DataType>);
 
       for (; cur_axis_index < input->shape[axis]; cur_axis_index++) {
@@ -501,20 +502,18 @@ void topk(DLTensor* input, DLTensor* out_values, DLTensor* out_indices, int k, i
 
         // if the current value is larger than the min of the min heap
         if (CompareDescend(cur_val, running_heap[0])) {
-            running_heap.push_back(cur_val);
-            std::push_heap(running_heap.begin(), running_heap.end(), CompareDescend<DataType>);
-            std::pop_heap(running_heap.begin(), running_heap.end(), CompareDescend<DataType>);
-            running_heap.pop_back();
+          running_heap.push_back(cur_val);
+          std::push_heap(running_heap.begin(), running_heap.end(), CompareDescend<DataType>);
+          std::pop_heap(running_heap.begin(), running_heap.end(), CompareDescend<DataType>);
+          running_heap.pop_back();
         }
       }
 
-      // finally sort heap and deliver results 
+      // finally sort heap and deliver results
       if (is_ascend) {
-        std::stable_sort(running_heap.begin(), running_heap.end(),
-                         CompareDescend<DataType>);
+        std::stable_sort(running_heap.begin(), running_heap.end(), CompareDescend<DataType>);
       } else {
-        std::stable_sort(running_heap.begin(), running_heap.end(),
-                         CompareAscend<DataType>);
+        std::stable_sort(running_heap.begin(), running_heap.end(), CompareAscend<DataType>);
       }
 
       for (uint32_t kk = 0; kk < running_heap.size(); ++kk) {
@@ -523,7 +522,8 @@ void topk(DLTensor* input, DLTensor* out_values, DLTensor* out_indices, int k, i
               static_cast<IndicesType>(running_heap[kk].first);
         }
         if (values_ptr != nullptr) {
-          values_ptr[dst_base_idx + kk * axis_mul_after] = static_cast<DataType>(running_heap[kk].second);
+          values_ptr[dst_base_idx + kk * axis_mul_after] =
+              static_cast<DataType>(running_heap[kk].second);
         }
       }
     }
