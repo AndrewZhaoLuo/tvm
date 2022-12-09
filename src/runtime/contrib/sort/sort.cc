@@ -339,6 +339,7 @@ TVM_REGISTER_GLOBAL("tvm.contrib.sort.sort").set_body([](TVMArgs args, TVMRetVal
   }
 });
 
+/*
 template <typename DataType, typename IndicesType>
 void topk_old(DLTensor* input, DLTensor* out_values, DLTensor* out_indices, int k, int axis,
           bool is_ascend) {
@@ -396,6 +397,7 @@ void topk_old(DLTensor* input, DLTensor* out_values, DLTensor* out_indices, int 
 template <typename DataType, typename IndicesType>
 void topk_old2(DLTensor* input, DLTensor* out_values, DLTensor* out_indices, int k, int axis,
           bool is_ascend) {
+  // Use heapsort
   DataType* data_ptr = static_cast<DataType*>(input->data);
   DataType* values_ptr =
       (out_values == nullptr) ? nullptr : static_cast<DataType*>(out_values->data);
@@ -451,6 +453,7 @@ void topk_old2(DLTensor* input, DLTensor* out_values, DLTensor* out_indices, int
     }
   }
 }
+*/
 
 template <typename DataType, typename IndicesType>
 void topk(DLTensor* input, DLTensor* out_values, DLTensor* out_indices, int k, int axis,
