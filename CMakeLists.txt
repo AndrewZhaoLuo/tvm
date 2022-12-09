@@ -128,11 +128,8 @@ include_directories(SYSTEM ${COMPILER_RT_PATH})
 include_directories(SYSTEM ${PICOJSON_PATH})
 
 # initial variables
-set(TVM_LINKER_LIBS)
-
-# Need `sudo apt install libtbb-dev` or `brew install tbb`
-set(TVM_RUNTIME_LINKER_LIBS "-ltbb")
-
+set(TVM_LINKER_LIBS "")
+set(TVM_RUNTIME_LINKER_LIBS "")
 
 # Check if this is being run on its own or as a subdirectory for another project
 # If we update to CMake 2.21+, we can use PROJECT_IS_TOP_LEVEL instead

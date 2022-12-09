@@ -25,10 +25,11 @@
 #include <tvm/runtime/registry.h>
 
 #include <algorithm>
-#include <execution>
 #include <vector>
 
 #include "../../../../3rdparty/compiler-rt/builtin_fp16.h"
+
+// #include <execution>
 
 namespace tvm {
 namespace contrib {
