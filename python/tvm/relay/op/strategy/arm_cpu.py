@@ -15,13 +15,12 @@
 # specific language governing permissions and limitations
 # under the License.
 """Definition of ARM CPU operator strategy."""
-from functools import reduce
 import logging
-
 # pylint: disable=invalid-name,unused-argument,wildcard-import,unused-wildcard-import
 import re
+from functools import reduce
 
-from tvm import relay, topi, tir
+from tvm import relay, tir, topi
 
 from ....auto_scheduler import is_auto_scheduler_enabled
 from ....meta_schedule import is_meta_schedule_enabled
@@ -586,6 +585,21 @@ def schedule_dense_arm_cpu(attrs, inputs, out_type, target):
         )
     return strategy
 
+@batch_matmul_strategy.register(["arm_cpu"])
+def schedule_batch_matmul_arm_cpu(attrs, inputs, out_type, target):
+    """As batch_matmul generic strategy, but enable rewrites."""
+    logger.warning("batch_matmul is not optimized for this platform.")
+    strategy = _op.OpStrategy()
+    strategy.add_implementation(
+        wrap_compute_batch_matmul(
+            topi.nn.batch_matmul, 
+            need_auto_scheduler_layout=is_auto_scheduler_enabled(), 
+            need_meta_schedule_layout=is_meta_schedule_enabled(),
+        ),
+        wrap_topi_schedule(topi.generic.schedule_batch_matmul),
+        name="batch_matmul.arm_cpu",
+    )
+    return strategy
 
 @conv1d_strategy.register("arm_cpu")
 def conv1d_strategy_arm_cpu(attrs, inputs, out_type, target):
